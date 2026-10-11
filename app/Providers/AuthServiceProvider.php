@@ -31,9 +31,13 @@ final class AuthServiceProvider extends ServiceProvider
     {
         $this->registerPolicies();
 
-        Gate::before(function (mixed $user): ?bool {
+        Gate::before(function (mixed $user, string $ability): ?bool {
             if (! $user instanceof User) {
                 return null;
+            }
+
+            if ($ability === 'viewLaralyze') {
+                return in_array($user->role, [UserRole::SuperAdmin, UserRole::Developer], true);
             }
 
             if (in_array($user->role, [UserRole::SuperAdmin, UserRole::Developer], true)) {

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Providers;
 
 use App\Contracts\AssessmentFormPdfRenderer;
+use App\Enums\UserRole;
 use App\Features\Toggles\AdminDeveloperMode;
 use App\Features\Toggles\AiFacultyAssistant;
 use App\Features\Toggles\AiFinanceAssistant;
@@ -180,6 +181,8 @@ final class AppServiceProvider extends ServiceProvider
         }
 
         Gate::define('viewApiDocs', fn (User $user): bool => $user->hasRole('super_admin'));
+        Gate::define('viewLaralyze', fn (?User $user): bool => $user !== null
+            && $user->hasAnyRole([UserRole::Developer->value, UserRole::SuperAdmin->value]));
 
         Livewire::component(
             'daacreators.pennant-manager.widgets.feature-adoption-widget',
