@@ -17,9 +17,7 @@
 
 Dear {{ $student_name }},
 
-We are pleased to inform you that your subject enrollment has been **verified and approved** by the Department Head.
-
-You are now one step away from being officially enrolled!
+<p>{!! nl2br(e($intro)) !!}</p>
 
 ### Approved Subjects
 <x-mail::table>
@@ -30,19 +28,21 @@ You are now one step away from being officially enrolled!
 @endforeach
 </x-mail::table>
 
+@if(!empty($tuition))
 ### Financial Summary
 Please proceed to the Cashier's Office to settle your downpayment.
 
 <x-mail::panel>
-**Total Tuition:** ₱{{ number_format($tuition->overall_tuition, 2) }}
+**Total Tuition:** ₱{{ number_format($tuition->overall_tuition ?? 0, 2) }}
 <br>
-**Downpayment Due:** ₱{{ number_format($tuition->downpayment, 2) }}
+**Downpayment Due:** ₱{{ number_format($tuition->downpayment ?? 0, 2) }}
 </x-mail::panel>
 
 Please visit the school within **3 to 5 days** to complete your payment.
+@endif
 
 <x-mail::button :url="config('app.url')">
-Visit Student Portal
+{{ $buttonLabel ?? 'Visit Student Portal' }}
 </x-mail::button>
 
 Best regards,<br>

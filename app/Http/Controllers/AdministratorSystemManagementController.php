@@ -14,10 +14,12 @@ use App\Enums\StudentType;
 use App\Enums\UserRole;
 use App\Features\DynamicEnrollmentPolicies;
 use App\Http\Requests\Administrators\FetchAiModelsRequest;
+use App\Http\Requests\Administrators\PreviewEnrollmentEmailTemplateRequest;
 use App\Http\Requests\Administrators\StoreSchoolRequest;
 use App\Http\Requests\Administrators\TestAiConnectionRequest;
 use App\Http\Requests\Administrators\UpdateAiSettingsRequest;
 use App\Http\Requests\Administrators\UpdateApiManagementRequest;
+use App\Http\Requests\Administrators\UpdateEnrollmentEmailTemplateRequest;
 use App\Http\Requests\Administrators\UpdateEnrollmentPipelineRequest;
 use App\Http\Requests\Administrators\UpdateFinanceDocumentSettingsRequest;
 use App\Http\Requests\Administrators\UpdateGradingPolicyRequest;
@@ -43,6 +45,8 @@ use App\Services\Ai\AiSettingsService;
 use App\Services\Ai\McpServerService;
 use App\Services\AnalyticsSettingsService;
 use App\Services\CurriculumCapabilityResolver;
+use App\Services\EnrollmentEmailTemplatePreviewService;
+use App\Services\EnrollmentEmailTemplateService;
 use App\Services\EnrollmentPipelineService;
 use App\Services\ErrorReportingService;
 use App\Services\FacultyCustomFieldDefinitionService;
@@ -242,6 +246,99 @@ final class AdministratorSystemManagementController extends Controller
     public function mail(): Response
     {
         return $this->renderSystemManagementPage('administrators/system-management/mail', 'mail', 'viewMail');
+    }
+
+    public function emailTemplates(EnrollmentEmailTemplateService $emailTemplates): Response
+    {
+        $policies = EnrollmentPolicy::query()
+            ->with(['versions' => fn ($query) => $query->latest('version'), 'activeVersion'])
+            ->orderBy('name')
+            ->get();
+
+        return $this->renderSystemManagementPage(
+            'administrators/system-management/email-templates',
+            'email_templates',
+            'viewEmailTemplates',
+            [
+                'email_template_policies' => $policies
+                    ->map(fn (EnrollmentPolicy $policy): array => [
+                        'id' => $policy->id,
+                        'name' => $policy->name,
+                        'scope' => $policy->scopeLabels(),
+                        'is_enabled' => $policy->is_enabled,
+                        'templates' => $emailTemplates->templatesFor($policy),
+                    ])
+                    ->values(),
+                'email_template_notification_types' => EnrollmentEmailTemplateService::NOTIFICATION_TYPES,
+                'email_template_documentation_url' => mb_rtrim((string) config('app.documentation_url'), '/'),
+            ],
+        );
+    }
+
+    public function editEmailTemplate(
+        Request $request,
+        EnrollmentPolicy $policy,
+        EnrollmentEmailTemplateService $emailTemplates,
+        EnrollmentEmailTemplatePreviewService $preview,
+    ): Response {
+        $this->authorize('viewEmailTemplates', GeneralSetting::class);
+
+        $stepKey = (string) $request->query('step_key', '');
+        $template = collect($emailTemplates->templatesFor($policy))->firstWhere('step_key', $stepKey);
+
+        if (! is_array($template)) {
+            $available = array_column($emailTemplates->templatesFor($policy), 'step_key');
+
+            abort(404, 'That workflow step has no email template to edit. Available steps: '.implode(', ', $available));
+        }
+
+        return $this->renderSystemManagementPage(
+            'administrators/system-management/email-template-editor',
+            'email_templates',
+            'viewEmailTemplates',
+            [
+                'email_template' => $template,
+                'email_template_editor' => $preview->editorProps($template),
+            ],
+        );
+    }
+
+    public function previewEmailTemplate(
+        PreviewEnrollmentEmailTemplateRequest $request,
+        EnrollmentPolicy $policy,
+        EnrollmentEmailTemplateService $emailTemplates,
+        EnrollmentEmailTemplatePreviewService $preview,
+    ): JsonResponse {
+        $validated = $request->validated();
+        $template = collect($emailTemplates->templatesFor($policy))->firstWhere('step_key', $validated['step_key']);
+
+        if (! is_array($template)) {
+            throw ValidationException::withMessages([
+                'step_key' => 'That workflow step does not exist in this policy.',
+            ]);
+        }
+
+        return response()->json($preview->preview($template, $validated['configuration']));
+    }
+
+    public function updateEmailTemplate(
+        UpdateEnrollmentEmailTemplateRequest $request,
+        EnrollmentPolicy $policy,
+        EnrollmentEmailTemplateService $emailTemplates,
+    ): RedirectResponse {
+        $user = $request->user();
+        abort_unless($user instanceof User, 403);
+
+        $validated = $request->validated();
+        $emailTemplates->update(
+            $policy,
+            $validated['step_key'],
+            $validated['configuration'],
+            $validated['change_notes'] ?? null,
+            $user,
+        );
+
+        return Redirect::back()->with('success', 'Email template saved to the policy draft.');
     }
 
     public function newsletter(NewsletterSettingsService $newsletterSettings): Response

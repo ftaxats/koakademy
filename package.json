@@ -11,6 +11,8 @@
         "lint": "eslint . --fix",
         "format": "prettier --write resources/",
         "format:check": "prettier --check resources/",
+        "test:email-canvas": "node --test tests/Unit/email-template-canvas.test.mjs",
+        "test:browser:email-canvas": "node --test tests/Browser/email-template-canvas.mjs",
         "test:browser:library-book": "node tests/Browser/library-book-create.mjs"
     },
     "devDependencies": {
@@ -18,6 +20,7 @@
         "@laravel/echo-react": "^2.5.0",
         "@shufo/prettier-plugin-blade": "^1.16.2",
         "@tailwindcss/vite": "^4.3.3",
+        "@types/dagre": "^0.7.54",
         "@types/react-dom": "^19.3.0",
         "@vitejs/plugin-react": "^6.1.1",
         "concurrently": "^9.2.4",
@@ -43,6 +46,7 @@
     },
     "dependencies": {
         "@base-ui/react": "^1.8.0",
+        "@dagrejs/dagre": "^3.1.1",
         "@dnd-kit/core": "^6.3.1",
         "@dnd-kit/modifiers": "^9.0.0",
         "@dnd-kit/sortable": "^10.0.0",
@@ -99,6 +103,7 @@
         "@visx/scale": "4.0.1-alpha.0",
         "@visx/shape": "4.0.1-alpha.0",
         "@withgraphite/graphite-cli": "^1.8.6",
+        "@xyflow/react": "^12.12.0",
         "axios": "^1.20.0",
         "babel-plugin-react-compiler": "^1.0.0",
         "boneyard-js": "^1.10.0",
