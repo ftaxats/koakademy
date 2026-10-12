@@ -62,6 +62,7 @@ export default defineConfig({
                         { slug: "system/modules-flags", label: "Modules & Flags" },
                         { slug: "system/enrollment-engine", label: "Enrollment Engine" },
                         { slug: "system/queues-pdf", label: "Queues & PDFs" },
+                        { slug: "system/observability", label: "Observability" },
                     ],
                 },
                 {

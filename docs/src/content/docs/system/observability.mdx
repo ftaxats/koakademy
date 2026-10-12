@@ -1,0 +1,53 @@
+---
+title: Observability
+description: Developer observability tools in KoAkademy — Laralyze, Pulse, Telescope, and Horizon access, roles, and enable flags.
+---
+
+# Observability
+
+KoAkademy ships four developer observability tools. They live **outside** the Filament panel and the admin workspace, each on its own path. When enabled and permitted, they appear in the admin panel sidebar under the **Observability** group (each opens in a new tab).
+
+| Tool | Default path | Who can open it | Enable flag |
+| ---- | ------------ | --------------- | ----------- |
+| Laralyze | `/laralyze` | Primary role **or** Spatie role `developer` / `super_admin` | `LARALYZE_ENABLED` (default on) |
+| Pulse | `/pulse` | Spatie role `super_admin` (or the configured admin e-mail) | `PULSE_ENABLED` (default off in `.env.example`) |
+| Telescope | `/telescope` | Spatie role `developer` | `TELESCOPE_ENABLED` (default off in `.env.example`) |
+| Horizon | `/horizon` | Primary role `super_admin` or Spatie role `super_admin` | Installed only in the production Docker images |
+
+Paths for Laralyze, Pulse, and Telescope are configurable (`laralyze.path`, `pulse.path`, `telescope.path`). Horizon is only registered when the package is present — see `bootstrap/providers.php`.
+
+## Laralyze
+
+Self-hosted production monitoring (requests, jobs, queries, exceptions, cache, AI calls, logs, users, visits). Installed via `mohammed-mojaly/laralyze`; config at `config/laralyze.php`, tables `laralyze_*`.
+
+Access is decided by the `viewLaralyze` gate (`app/Providers/AppServiceProvider.php`, enforced first in `app/Providers/AuthServiceProvider.php`):
+
+- primary `users.role` is `developer` or `super_admin`, **or**
+- Spatie role is `developer` or `super_admin`.
+
+Guests and all other roles get **403**. The account's Spatie roles are managed on the Users edit page (`role` is the primary column, `roles[]` are Spatie roles) — a user with primary `admin` but Spatie `super_admin` **is** allowed.
+
+Production notes:
+
+- Run `php artisan migrate --force` after deploy (Laralyze tables are pending until then), then `php artisan optimize` and `php artisan queue:restart`.
+- The scheduler must run every minute (Laralyze trim/digest/server tasks). The Docker images already run it via Supercronic.
+- Ask AI (`LARALYZE_ASSISTANT_ENABLED`) is **off by default** because it can send recorded context and readable application code to the configured AI provider. Tests force `LARALYZE_ENABLED=false` (`phpunit.xml`).
+- Log in on the **admin host** (`ADMIN_HOST`, e.g. `admin.dccp.edu.ph`) and open `/laralyze` on that same host. Session cookies are host-only (`SESSION_DOMAIN` unset), so a session from the portal host is not sent to the admin host and vice versa.
+
+## Pulse
+
+Request/queue/cache performance dashboard. Gate `viewPulse` (`app/Providers/PulseServiceProvider.php`) allows the configured admin e-mail or Spatie `super_admin`. Disabled by default for a minimal local setup (`TELESCOPE_ENABLED=false`, `PULSE_ENABLED=false` in `.env.example`).
+
+## Telescope
+
+Debug assistant for exceptions, failed requests/jobs, and scheduled tasks. Gate `viewTelescope` (`app/Providers/TelescopeServiceProvider.php`) allows Spatie role `developer`. Outside `local`, Telescope records only reportable exceptions, failed requests/jobs, scheduled tasks, and monitored tags, and hides `_token` plus cookie/auth headers.
+
+## Horizon
+
+Redis queue dashboard. Only installed in the production Docker images and only registered when the package exists. Gate `viewHorizon` (`app/Providers/AuthServiceProvider.php`) allows primary `super_admin` or Spatie `super_admin`.
+
+## Troubleshooting 403
+
+1. **Role mismatch** — check both sources: `users.role` column and Spatie `model_has_roles`. In `tinker`: `Gate::forUser($u)->allows('viewLaralyze')`.
+2. **Wrong host / guard** — Laralyze uses the `web` guard (staff `User`, not portal `Account`) with no `auth` redirect, so a missing session shows as 403. Use the admin host you logged in on.
+3. **Stale workers** — FrankenPHP Octane keeps gates in memory. After deploy: `php artisan optimize:clear`, reload Octane / restart the container, and confirm `php artisan about` shows Laralyze `ENABLED` with health `OK`.

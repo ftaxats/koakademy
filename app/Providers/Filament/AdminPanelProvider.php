@@ -26,6 +26,7 @@ use Filament\Http\Middleware\AuthenticateSession;
 use Filament\Http\Middleware\DisableBladeIconComponents;
 use Filament\Http\Middleware\DispatchServingFilamentEvent;
 use Filament\Navigation\NavigationGroup;
+use Filament\Navigation\NavigationItem;
 use Filament\Pages\Dashboard;
 use Filament\Panel;
 use Filament\PanelProvider;
@@ -43,6 +44,7 @@ use Illuminate\Foundation\Http\Middleware\VerifyCsrfToken;
 use Illuminate\Routing\Middleware\SubstituteBindings;
 use Illuminate\Session\Middleware\StartSession;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\HtmlString;
 use Illuminate\View\Middleware\ShareErrorsFromSession;
 use Joaopaulolndev\FilamentEditProfile\FilamentEditProfilePlugin;
@@ -229,6 +231,44 @@ final class AdminPanelProvider extends PanelProvider
                     ->label('System Tools')
                     ->icon('heroicon-o-wrench-screwdriver')
                     ->collapsible(),
+                NavigationGroup::make()
+                    ->label('Observability')
+                    ->icon('heroicon-o-chart-bar')
+                    ->collapsible(),
+            ])
+            ->navigationItems([
+                NavigationItem::make('Laralyze')
+                    ->url(fn (): string => url((string) config('laralyze.path', 'laralyze')))
+                    ->icon(Heroicon::OutlinedChartBar)
+                    ->group('Observability')
+                    ->sort(1)
+                    ->openUrlInNewTab()
+                    ->isActiveWhen(fn (): bool => request()->is(mb_trim((string) config('laralyze.path', 'laralyze'), '/').'*'))
+                    ->visible(fn (): bool => (bool) config('laralyze.enabled') && Gate::allows('viewLaralyze')),
+                NavigationItem::make('Pulse')
+                    ->url(fn (): string => url(mb_trim((string) config('pulse.path', 'pulse'), '/')))
+                    ->icon(Heroicon::OutlinedPresentationChartLine)
+                    ->group('Observability')
+                    ->sort(2)
+                    ->openUrlInNewTab()
+                    ->isActiveWhen(fn (): bool => request()->is(mb_trim((string) config('pulse.path', 'pulse'), '/').'*'))
+                    ->visible(fn (): bool => (bool) config('pulse.enabled') && Gate::allows('viewPulse')),
+                NavigationItem::make('Telescope')
+                    ->url(fn (): string => url(mb_trim((string) config('telescope.path', 'telescope'), '/')))
+                    ->icon(Heroicon::OutlinedBeaker)
+                    ->group('Observability')
+                    ->sort(3)
+                    ->openUrlInNewTab()
+                    ->isActiveWhen(fn (): bool => request()->is(mb_trim((string) config('telescope.path', 'telescope'), '/').'*'))
+                    ->visible(fn (): bool => (bool) config('telescope.enabled') && Gate::allows('viewTelescope')),
+                NavigationItem::make('Horizon')
+                    ->url(fn (): string => url(mb_trim((string) config('horizon.path', 'horizon'), '/')))
+                    ->icon(Heroicon::OutlinedQueueList)
+                    ->group('Observability')
+                    ->sort(4)
+                    ->openUrlInNewTab()
+                    ->isActiveWhen(fn (): bool => request()->is(mb_trim((string) config('horizon.path', 'horizon'), '/').'*'))
+                    ->visible(fn (): bool => class_exists(\Laravel\Horizon\HorizonApplicationServiceProvider::class) && Gate::allows('viewHorizon')),
             ])
             ->discoverResources(in: app_path('Filament/Resources'), for: 'App\Filament\Resources')
             ->discoverPages(in: app_path('Filament/Pages'), for: 'App\Filament\Pages')
