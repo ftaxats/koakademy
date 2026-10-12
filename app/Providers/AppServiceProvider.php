@@ -181,8 +181,17 @@ final class AppServiceProvider extends ServiceProvider
         }
 
         Gate::define('viewApiDocs', fn (User $user): bool => $user->hasRole('super_admin'));
-        Gate::define('viewLaralyze', fn (?User $user): bool => $user !== null
-            && $user->hasAnyRole([UserRole::Developer->value, UserRole::SuperAdmin->value]));
+        Gate::define('viewLaralyze', function (?User $user): bool {
+            if (! $user instanceof User) {
+                return false;
+            }
+
+            if (in_array($user->role, [UserRole::SuperAdmin, UserRole::Developer], true)) {
+                return true;
+            }
+
+            return $user->hasAnyRole([UserRole::Developer->value, UserRole::SuperAdmin->value]);
+        });
 
         Livewire::component(
             'daacreators.pennant-manager.widgets.feature-adoption-widget',

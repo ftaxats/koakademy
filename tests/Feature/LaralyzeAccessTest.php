@@ -23,9 +23,19 @@ it('denies Laralyze access to other roles and guests', function (): void {
         ->and(Gate::allows('viewLaralyze'))->toBeFalse();
 });
 
-it('does not let an unrelated assigned role bypass Laralyze access', function (): void {
+it('allows Spatie developer and super admin roles to view Laralyze', function (string $role): void {
     $user = User::factory()->create(['role' => UserRole::Admin]);
-    $user->assignRole(Role::findOrCreate(UserRole::Developer->value, 'web'));
+    $user->assignRole(Role::findOrCreate($role, 'web'));
+
+    expect(Gate::forUser($user)->allows('viewLaralyze'))->toBeTrue();
+})->with([
+    'developer' => UserRole::Developer->value,
+    'super admin' => UserRole::SuperAdmin->value,
+]);
+
+it('denies Laralyze access to unrelated Spatie roles', function (): void {
+    $user = User::factory()->create(['role' => UserRole::Admin]);
+    $user->assignRole(Role::findOrCreate(UserRole::Registrar->value, 'web'));
 
     expect(Gate::forUser($user)->allows('viewLaralyze'))->toBeFalse();
 });

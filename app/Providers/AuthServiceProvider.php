@@ -36,8 +36,8 @@ final class AuthServiceProvider extends ServiceProvider
                 return null;
             }
 
-            if ($ability === 'viewLaralyze') {
-                return in_array($user->role, [UserRole::SuperAdmin, UserRole::Developer], true);
+            if ($ability === 'viewLaralyze' || $ability === 'useLaralyzeAssistant') {
+                return $this->canViewLaralyze($user) ? true : false;
             }
 
             if (in_array($user->role, [UserRole::SuperAdmin, UserRole::Developer], true)) {
@@ -66,5 +66,14 @@ final class AuthServiceProvider extends ServiceProvider
     private function canViewHorizon(User $user): bool
     {
         return $user->role === UserRole::SuperAdmin || $user->hasRole(UserRole::SuperAdmin);
+    }
+
+    private function canViewLaralyze(User $user): bool
+    {
+        if (in_array($user->role, [UserRole::SuperAdmin, UserRole::Developer], true)) {
+            return true;
+        }
+
+        return $user->hasAnyRole([UserRole::SuperAdmin->value, UserRole::Developer->value]);
     }
 }
