@@ -274,11 +274,19 @@ final class AdminPanelProvider extends PanelProvider
                     ->openUrlInNewTab()
                     ->isActiveWhen(fn (): bool => request()->is(mb_trim((string) config('horizon.path', 'horizon'), '/').'*'))
                     ->visible(fn (): bool => class_exists(\Laravel\Horizon\HorizonApplicationServiceProvider::class) && Gate::allows('viewHorizon')),
+                NavigationItem::make('Trail')
+                    ->url(fn (): string => url(mb_trim((string) config('trail.path', 'trail'), '/')))
+                    ->icon(Heroicon::OutlinedSparkles)
+                    ->group('Observability')
+                    ->sort(5)
+                    ->openUrlInNewTab()
+                    ->isActiveWhen(fn (): bool => request()->is(mb_trim((string) config('trail.path', 'trail'), '/').'*'))
+                    ->visible(fn (): bool => class_exists(\Astro\Trail\Trail::class) && (bool) config('trail.enabled', true) && (bool) config('trail.dashboard.enabled', true) && Gate::allows('viewTrail')),
                 NavigationItem::make('Logs & Retention')
                     ->url(fn (): string => route('administrators.system-management.log-retention.index'))
                     ->icon(Heroicon::OutlinedClock)
                     ->group('Observability')
-                    ->sort(5)
+                    ->sort(6)
                     ->visible(fn (): bool => Gate::allows('viewLogRetention', \App\Models\GeneralSetting::class)),
             ])
             ->discoverResources(in: app_path('Filament/Resources'), for: 'App\Filament\Resources')

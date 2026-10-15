@@ -30,6 +30,7 @@ import {
     Bot,
     CheckCircle2,
     Cpu,
+    ExternalLink,
     Eye,
     EyeOff,
     Globe,
@@ -596,6 +597,18 @@ export default function SystemManagementAiPage({
                                 </CardDescription>
                             </div>
                             <div className="flex items-center gap-3">
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    asChild
+                                    className="gap-1.5"
+                                >
+                                    <a href="/trail" target="_blank" rel="noopener noreferrer">
+                                        <ExternalLink className="size-3.5" />
+                                        Trail Dashboard
+                                    </a>
+                                </Button>
                                 <Label htmlFor="ai-master-switch" className="text-sm font-medium">
                                     AI Engine Active
                                 </Label>

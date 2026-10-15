@@ -33,6 +33,20 @@ Schedule::command('system-logs:prune-due')
     ->onOneServer()
     ->withoutOverlapping();
 
+if (class_exists(Astro\Trail\Trail::class)) {
+    Schedule::command('trail:prune')
+        ->daily()
+        ->environments(['production'])
+        ->onOneServer()
+        ->withoutOverlapping();
+
+    Schedule::command('trail:sweep')
+        ->everyFiveMinutes()
+        ->environments(['production'])
+        ->onOneServer()
+        ->withoutOverlapping();
+}
+
 Schedule::command('migrate:fresh --seed --force')
     ->daily()
     ->environments(['demo'])
