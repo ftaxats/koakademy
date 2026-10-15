@@ -163,8 +163,29 @@ final class ProfileController extends Controller
                 ->all();
         }
 
+        $integrationSettings = app(\App\Services\ApplicationIntegrationSettingsService::class);
+        $calendarFeedAllowed = $integrationSettings->isCalendarFeedAllowedFor($user);
+
         return Inertia::render('profile', [
             'connected_accounts' => $connectedAccounts,
+            'calendar_feed' => $calendarFeedAllowed ? [
+                'enabled' => true,
+                'feed_url' => app(\App\Services\CalendarFeedService::class)->getFeedUrl($user),
+                'webcal_url' => app(\App\Services\CalendarFeedService::class)->getWebcalUrl($user),
+                'download_url' => route('calendar.download', absolute: false),
+            ] : [
+                'enabled' => false,
+                'feed_url' => null,
+                'webcal_url' => null,
+                'download_url' => null,
+            ],
+            'integrations_status' => [
+                'google_calendar_enabled' => $integrationSettings->isGoogleCalendarEnabled(),
+                'calendar_feed_enabled' => $calendarFeedAllowed,
+                'microsoft_enabled' => $integrationSettings->isMicrosoftEnabled(),
+                'google_drive_enabled' => $integrationSettings->isGoogleDriveEnabled(),
+                'onedrive_enabled' => $integrationSettings->isOneDriveEnabled(),
+            ],
             'can_view_newsletter_settings' => $canViewNewsletterSettings,
             'newsletter_settings_url' => $canViewNewsletterSettings
                 ? route('administrators.settings.newsletter.index', absolute: false)
@@ -891,17 +912,19 @@ final class ProfileController extends Controller
     public function redirect()
     {
         $user = Auth::user();
+        $query = request()->getQueryString();
+        $target = null;
 
         if ($user->isFaculty()) {
-            return redirect()->route('faculty.profile');
+            $target = route('faculty.profile');
+        } elseif ($user->isStudentRole()) {
+            $target = route('student.profile');
+        } elseif ($user->isAdministrative()) {
+            $target = route('filament.admin.auth.profile');
         }
 
-        if ($user->isStudentRole()) {
-            return redirect()->route('student.profile');
-        }
-
-        if ($user->isAdministrative()) {
-            return redirect()->route('filament.admin.auth.profile');
+        if ($target) {
+            return redirect($query ? "{$target}?{$query}" : $target);
         }
 
         // Fallback
