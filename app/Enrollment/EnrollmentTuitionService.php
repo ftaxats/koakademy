@@ -9,11 +9,12 @@ use App\Data\Enrollment\EnrollmentContext;
 use App\Models\Course;
 use App\Models\StudentEnrollment;
 use App\Models\StudentTuition;
+use App\Services\AssessmentCalculationService;
 use App\Services\EnrollmentBillingService;
 
 final readonly class EnrollmentTuitionService
 {
-    public function __construct(private EnrollmentBillingService $billing) {}
+    public function __construct(private EnrollmentBillingService $billing, private EnrollmentFeeCalculator $fees, private AssessmentCalculationService $assessments) {}
 
     /** @param array<string, mixed> $configuration */
     public function persist(
@@ -53,9 +54,6 @@ final readonly class EnrollmentTuitionService
         $lectureTotal = 0.0;
         $laboratoryTotal = 0.0;
         $modularTotal = 0.0;
-        $nstpMultiplier = (float) ($configuration['nstp_lecture_multiplier'] ?? 0.5);
-        $modularLabMultiplier = (float) ($configuration['modular_laboratory_multiplier'] ?? 0.5);
-        $modularFee = (float) ($configuration['modular_fee'] ?? 2400);
 
         foreach ($subjects as $subjectEnrollment) {
             if ($subjectEnrollment->exclude_from_tuition) {
@@ -67,26 +65,14 @@ final readonly class EnrollmentTuitionService
                 return ActionResult::failure("Subject enrollment [{$subjectEnrollment->id}] has no subject.");
             }
 
-            $lecture = (float) $subjectEnrollment->lecture_fee;
-            $laboratory = (float) $subjectEnrollment->laboratory_fee;
-            if ($lecture <= 0 && $laboratory <= 0) {
-                $lecture = ((int) $subject->lecture + (int) $subject->laboratory)
-                    * $lectureRate;
-                if (str_contains(mb_strtoupper((string) $subject->code), 'NSTP')) {
-                    $lecture *= $nstpMultiplier;
-                }
-                $laboratory = (int) $subject->laboratory > 0
-                    ? $laboratoryRate
-                    : 0.0;
-            }
-
-            if ($subjectEnrollment->is_modular) {
-                $laboratory *= $modularLabMultiplier;
-                $modularTotal += $modularFee;
-            }
-
-            $lectureTotal += $lecture;
-            $laboratoryTotal += $laboratory;
+            $fees = $this->fees->subject($subject->toArray(), [
+                ...$configuration,
+                'course_lecture_rate_per_unit' => $lectureRate,
+                'course_laboratory_rate_per_unit' => $laboratoryRate,
+            ], (bool) $subjectEnrollment->is_modular, $subjectEnrollment->toArray());
+            $lectureTotal += $fees['lecture_fee'];
+            $laboratoryTotal += $fees['laboratory_fee'];
+            $modularTotal += $fees['modular_fee'];
         }
 
         $discount = (int) ($runtime['discount_percentage'] ?? $runtime['discount'] ?? $configuration['discount_percentage'] ?? 0);
@@ -99,7 +85,8 @@ final readonly class EnrollmentTuitionService
 
         $miscellaneous = array_key_exists('miscellaneous_fee', $runtime)
             ? (float) $runtime['miscellaneous_fee']
-            : (float) ($configuration['course_miscellaneous_fee']
+            : (float) ($configuration['miscellaneous_fee_override']
+                ?? $configuration['course_miscellaneous_fee']
                 ?? $configuration['miscellaneous_fee_fallback']
                 ?? $course->getMiscellaneousFee());
         $additionalFees = (float) $enrollment->additionalFees()->sum('amount');
@@ -142,10 +129,47 @@ final readonly class EnrollmentTuitionService
     /** @param array<string, mixed> $configuration @return array<string, mixed> */
     public function quote(EnrollmentContext $context, array $configuration): array
     {
+        $enrollment = $context->enrollment;
+        if (! $enrollment) {
+            return [
+                'strategy' => 'billing.course_rate',
+                'configuration' => $configuration,
+                'estimate_available' => false,
+                'reason' => 'Select an existing enrollment with assigned subjects to calculate an estimate.',
+            ];
+        }
+        $enrollment->loadMissing(['course', 'subjectsEnrolled.subject', 'additionalFees', 'studentTuition']);
+        $configuration = [
+            ...EnrollmentFeeCalculator::Defaults,
+            'course_lecture_rate_per_unit' => (float) ($enrollment->course?->lec_per_unit ?? 0),
+            'course_laboratory_rate_per_unit' => (float) ($enrollment->course?->lab_per_unit ?? 0),
+            ...array_filter($configuration, static fn (mixed $value): bool => $value !== null),
+        ];
+        $lecture = $laboratory = $modular = 0.0;
+        foreach ($enrollment->subjectsEnrolled as $subjectEnrollment) {
+            if ($subjectEnrollment->exclude_from_tuition || ! $subjectEnrollment->subject) {
+                continue;
+            }
+            $fees = $this->fees->subject($subjectEnrollment->subject->toArray(), $configuration, (bool) $subjectEnrollment->is_modular, $subjectEnrollment->toArray());
+            $lecture += $fees['lecture_fee'];
+            $laboratory += $fees['laboratory_fee'];
+            $modular += $fees['modular_fee'];
+        }
+
         return [
             'strategy' => 'billing.course_rate',
             'configuration' => $configuration,
-            'enrollment_id' => $context->enrollment?->id,
+            'enrollment_id' => $enrollment->id,
+            'estimate_available' => $enrollment->subjectsEnrolled->isNotEmpty(),
+            'estimate_basis' => 'Saved final subject fees; draft modular surcharge. Subject multipliers apply only when quoting new subject fees.',
+            'estimate' => $this->assessments->calculateComponents(
+                grossLecture: $lecture,
+                laboratory: $laboratory,
+                modular: $modular,
+                miscellaneous: (float) ($configuration['miscellaneous_fee_override'] ?? $configuration['course_miscellaneous_fee'] ?? $enrollment->course?->getMiscellaneousFee() ?? $configuration['miscellaneous_fee_fallback']),
+                additionalFees: (float) $enrollment->additionalFees->sum('amount'),
+                discountPercentage: (int) ($configuration['discount_percentage'] ?? $enrollment->studentTuition?->discount ?? 0),
+            ),
         ];
     }
 }

@@ -1,0 +1,49 @@
+# Enrollment fee rules
+
+## Configure modular pricing
+
+In System Management → Enrollment Pipeline → Stage 5: Tuition & Billing, edit the course-rate billing strategy:
+
+- **Modular laboratory multiplier:** `1` charges the full lab fee, `0.5` charges half, and `0` waives it. New presets default to `1`.
+- **Fee per modular subject:** separate surcharge added to lecture and laboratory fees. Set `0` to disable. Default remains `2400`.
+- **Lecture fee basis:** combined lecture/lab units (compatibility default), or lecture units only. Subjects with no lecture units have no calculated lecture charge.
+- **Laboratory fee basis:** one charge per subject (compatibility default), or rate multiplied by lab units.
+- **Reduced-lecture subject code marker:** case-insensitive text fragment, default `NSTP`. Empty disables matching. The lecture multiplier remains `0.5` by default.
+- **Default expected downpayment:** suggested fixed amount for new administrator enrollments. Default `3500`; zero allowed. This does not record a payment or change the minimum-payment completion gate.
+- **Policy miscellaneous fee override:** blank uses existing program/curriculum fee; zero waives it. An explicit staff assessment amount takes precedence.
+
+Publish the draft and activate the dynamic enrollment engine for new enrollments to use scoped policy settings. Existing published values are not rewritten. Legacy enrollments use compatibility defaults, not newly published policies.
+
+Policy enrollments use their immutable enrollment policy snapshot when editing or recalculating. Publishing a policy does not bulk-reprice existing students. Existing saved subject amounts are preserved; correcting an old assessment requires an explicit staff edit or the finance revision workflow.
+
+## Fee contract
+
+`lecture_fee` and `laboratory_fee` are **final assessed amounts**, not base amounts awaiting another multiplier. Explicit zero is valid. Missing/null amounts are calculated independently from program rates by `EnrollmentFeeCalculator`.
+
+Administrator create/edit requests quote subject fees through the backend calculator. Assignment, tuition creation, edit totals, recalculation, assessment calculations, and administrator assessment previews use the same subject fee contract. A saved modular lab fee of `1000` must remain `1000`, not become `500`, when tuition is calculated again.
+
+Discounts apply to lecture charges only. Modular surcharge, lab, miscellaneous, and additional fees remain outside that discount.
+
+An explicitly selected finance fee schedule is a repricing operation: it computes new subject amounts from that schedule instead of reusing saved amounts. Ordinary recalculation preserves saved amounts.
+
+Simulation returns numeric component estimates when an existing enrollment is selected, without writing tuition. Estimates use saved subject fees plus draft surcharge settings; they do not pretend to reprice saved overrides when a multiplier changes. Without an enrollment, no monetary estimate is claimed.
+
+## Developer extensions
+
+Register code-backed strategies through `EnrollmentPolicyRegistry::registerBillingStrategy()`. A strategy must implement `RuntimeEnrollmentBillingStrategy`; implement `EnrollmentOperatorSchemaProvider` to expose approved configuration fields in the pipeline editor. Use `calculate()` for a read-only quote and `execute()` for persisted billing behavior.
+
+Settings are data, not executable PHP/JavaScript. Keep custom calculations in reviewed application code. Custom strategies must also define how their prices behave during administrator edits and finance revisions; registering a strategy alone does not replace every compatibility calculation.
+
+## Remaining compatibility boundaries
+
+Older Filament form/provider calculations and the Filament API create handler still have their own fee formulas. They need a separate migration to this contract before claiming identical pricing across every enrollment entry point. Curriculum-year miscellaneous inference remains the fallback when no policy override is supplied. Old Filament downpayment defaults remain unchanged.
+
+## Assignment behavior
+
+The first-available strategy supports **Prefer the class with the most available seats**. It ranks remaining active seats, prioritizes unlimited sections, and breaks ties by class ID. It rechecks capacity under the class row lock; ranking is advisory under concurrent enrollment. Default remains class-ID order.
+
+The unsupported **Include eligible irregular subjects** control was removed. Automatic curriculum assignment still selects matching program/year/semester subjects. Existing stored flags are retained for compatibility but do not enable irregular selection. Prerequisite-aware irregular assignment needs a real eligibility provider before this control returns.
+
+## Deferred work
+
+This change does not add dynamic semesters/year catalogs, arbitrary discount scopes, cumulative-payment gate redesign, new notification channels, prerequisite/grade/schedule fact providers, or full Filament/API migration. Those require separate domain changes and end-to-end coverage; their controls are not added here.

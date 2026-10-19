@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Enrollment\EnrollmentFeeCalculator;
+use App\Enrollment\EnrollmentFeePolicy;
 use App\Models\FeeScheduleVersion;
 use App\Models\StudentEnrollment;
 use App\Models\StudentTuition;
@@ -11,6 +13,8 @@ use Illuminate\Support\Collection;
 
 final readonly class AssessmentCalculationService
 {
+    public function __construct(private EnrollmentFeeCalculator $feeCalculator, private EnrollmentFeePolicy $feePolicy) {}
+
     /**
      * @param  Collection<int, mixed>  $subjects
      * @param  array<int, array<string, mixed>>  $additionalFees
@@ -40,21 +44,22 @@ final readonly class AssessmentCalculationService
         $enrollment->loadMissing(['course', 'subjectsEnrolled.subject', 'additionalFees']);
         $course = $enrollment->course;
 
-        $lectureRate = $feeSchedule
-            ? (float) $feeSchedule->lecture_rate_per_unit
-            : (float) ($course?->lec_per_unit ?? 0);
-        $laboratoryRate = $feeSchedule
-            ? (float) $feeSchedule->laboratory_rate_per_unit
-            : (float) ($course?->lab_per_unit ?? 0);
-        $modularFee = $feeSchedule
-            ? (float) $feeSchedule->modular_fee
-            : 2400.0;
-        $nstpMultiplier = $feeSchedule
-            ? (float) $feeSchedule->nstp_multiplier
-            : 0.50;
-        $modularLabMultiplier = $feeSchedule
-            ? (float) $feeSchedule->modular_lab_multiplier
-            : 0.50;
+        $configuration = $this->feePolicy->forEnrollment($enrollment);
+        if ($feeSchedule) {
+            $configuration = [
+                ...$configuration,
+                'course_lecture_rate_per_unit' => (float) $feeSchedule->lecture_rate_per_unit,
+                'course_laboratory_rate_per_unit' => (float) $feeSchedule->laboratory_rate_per_unit,
+                'modular_fee' => (float) $feeSchedule->modular_fee,
+                'nstp_lecture_multiplier' => (float) $feeSchedule->nstp_multiplier,
+                'modular_laboratory_multiplier' => (float) $feeSchedule->modular_lab_multiplier,
+            ];
+        }
+        $lectureRate = (float) $configuration['course_lecture_rate_per_unit'];
+        $laboratoryRate = (float) $configuration['course_laboratory_rate_per_unit'];
+        $modularFee = (float) $configuration['modular_fee'];
+        $nstpMultiplier = (float) $configuration['nstp_lecture_multiplier'];
+        $modularLabMultiplier = (float) $configuration['modular_laboratory_multiplier'];
 
         $grossLecture = 0.0;
         $laboratory = 0.0;
@@ -71,26 +76,11 @@ final readonly class AssessmentCalculationService
                 continue;
             }
 
-            $subLecture = (float) $subjectEnrollment->lecture_fee;
-            $subLaboratory = (float) $subjectEnrollment->laboratory_fee;
-
-            if ($subLecture <= 0 && $subLaboratory <= 0) {
-                $totalUnits = (int) $subject->lecture + (int) $subject->laboratory;
-                $subLecture = $totalUnits * $lectureRate;
-
-                if (str_contains(mb_strtoupper((string) $subject->code), 'NSTP')) {
-                    $subLecture *= $nstpMultiplier;
-                }
-
-                $subLaboratory = (int) $subject->laboratory > 0 ? $laboratoryRate : 0.0;
-            }
-
-            $subModular = 0.0;
-            if ($subjectEnrollment->is_modular) {
-                $subLaboratory *= $modularLabMultiplier;
-                $subModular = $modularFee;
-                $modular += $subModular;
-            }
+            $fees = $this->feeCalculator->subject($subject->toArray(), $configuration, (bool) $subjectEnrollment->is_modular, $feeSchedule ? [] : $subjectEnrollment->toArray());
+            $subLecture = $fees['lecture_fee'];
+            $subLaboratory = $fees['laboratory_fee'];
+            $subModular = $fees['modular_fee'];
+            $modular += $subModular;
 
             $subLecture = round($subLecture, 2);
             $subLaboratory = round($subLaboratory, 2);
@@ -115,7 +105,7 @@ final readonly class AssessmentCalculationService
             ? round($miscellaneousOverride, 2)
             : ($feeSchedule
                 ? round((float) $feeSchedule->miscellaneous_fee, 2)
-                : round((float) ($course?->getMiscellaneousFee() ?? 0), 2));
+                : round((float) ($configuration['miscellaneous_fee_override'] ?? $configuration['course_miscellaneous_fee'] ?? $course?->getMiscellaneousFee() ?? 0), 2));
 
         $additionalFees = round((float) $enrollment->additionalFees->sum('amount'), 2);
 

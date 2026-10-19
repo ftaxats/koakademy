@@ -46,10 +46,7 @@ final class EnrollmentPolicyPreset
             'billing' => [
                 'strategy' => 'billing.course_rate',
                 'configuration' => [
-                    'nstp_lecture_multiplier' => 0.5,
-                    'modular_laboratory_multiplier' => 0.5,
-                    'modular_fee' => 2400,
-                    'miscellaneous_fee_fallback' => 3500,
+                    ...EnrollmentFeeCalculator::Defaults,
                     'course_lecture_rate_per_unit' => null,
                     'course_laboratory_rate_per_unit' => null,
                     'course_miscellaneous_fee' => null,
@@ -165,7 +162,7 @@ final class EnrollmentPolicyPreset
         $configuration = self::standard();
         $configuration['assignment'] = [
             'strategy' => 'assignment.curriculum_automatic',
-            'configuration' => ['include_irregular_subjects' => false],
+            'configuration' => [],
         ];
 
         return $configuration;

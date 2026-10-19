@@ -705,6 +705,7 @@ it('keeps normalized billing behavior pinned after a newer policy version is pub
         ['key' => 'tuition', 'handler' => 'enrollment.calculate_tuition', 'configuration' => []],
     ];
     $configuration['billing']['configuration']['modular_fee'] = 1000;
+    $configuration['billing']['configuration']['modular_laboratory_multiplier'] = 0.5;
     $policy = ($this->publishEnrollmentPolicy)($configuration, $school);
     $firstSubmission = ($this->submissionFor)($firstStudent, $subject, 'pinned-billing-first');
     $firstSubmission = new EnrollmentSubmissionData(
@@ -741,6 +742,7 @@ it('keeps normalized billing behavior pinned after a newer policy version is pub
     );
     $second = app(EnrollmentWorkflowCoordinator::class)->submit($secondSubmission);
 
+    expect((float) $first->studentTuition->total_laboratory)->toBe(200.0);
     expect(data_get($first->policySnapshot->configuration, 'billing.configuration.modular_fee'))->toBe(1000)
         ->and(data_get($first->refresh()->policySnapshot->configuration, 'billing.configuration.modular_fee'))->toBe(1000)
         ->and(data_get($second->policySnapshot->configuration, 'billing.configuration.modular_fee'))->toBe(9000)

@@ -39,11 +39,8 @@ final readonly class ConfiguredAssignmentStrategy implements EnrollmentOperatorS
                 default => 'Assignment is managed by the registered extension.',
             },
             'fields' => match ($this->strategyKey) {
-                'assignment.curriculum_automatic' => [[
-                    'key' => 'include_irregular_subjects', 'label' => 'Include eligible irregular subjects', 'control' => 'boolean',
-                ]],
                 'assignment.class_first_available' => [[
-                    'key' => 'prefer_least_filled', 'label' => 'Prefer the class with the most available seats', 'control' => 'boolean',
+                    'key' => 'prefer_least_filled', 'label' => 'Prefer the class with the most available seats', 'description' => 'Ranks finite sections by remaining active seats; unlimited sections rank first. Ties use class ID. Capacity is checked again under a row lock.', 'control' => 'boolean',
                 ]],
                 default => [],
             },

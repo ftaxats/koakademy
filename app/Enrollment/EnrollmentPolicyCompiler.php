@@ -256,6 +256,9 @@ final readonly class EnrollmentPolicyCompiler
 
         $billing = is_array($configuration['billing'] ?? null) ? $configuration['billing'] : [];
         $billingConfiguration = is_array($billing['configuration'] ?? null) ? $billing['configuration'] : [];
+        if (($billingConfiguration['miscellaneous_fee_override'] ?? null) === '') {
+            $billingConfiguration['miscellaneous_fee_override'] = null;
+        }
         $minimum = array_key_exists('minimum_payment_type', $billingConfiguration)
             ? [
                 'type' => $billingConfiguration['minimum_payment_type'] ?? 'none',
@@ -271,10 +274,7 @@ final readonly class EnrollmentPolicyCompiler
             'strategy' => 'billing.course_rate',
             ...$billing,
             'configuration' => [
-                'nstp_lecture_multiplier' => 0.5,
-                'modular_laboratory_multiplier' => 0.5,
-                'modular_fee' => 2400,
-                'miscellaneous_fee_fallback' => 3500,
+                ...EnrollmentFeeCalculator::Defaults,
                 'course_lecture_rate_per_unit' => null,
                 'course_laboratory_rate_per_unit' => null,
                 'course_miscellaneous_fee' => null,

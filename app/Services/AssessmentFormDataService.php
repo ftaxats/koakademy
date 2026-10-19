@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Enrollment\EnrollmentFeeCalculator;
+use App\Enrollment\EnrollmentFeePolicy;
 use App\Models\StudentEnrollment;
 use App\Models\StudentTuition;
 use App\Settings\SiteSettings;
@@ -23,6 +25,8 @@ final readonly class AssessmentFormDataService
         private EnrollmentBillingService $enrollmentBillingService,
         private GeneralSettingsService $settingsService,
         private SiteSettings $siteSettings,
+        private EnrollmentFeeCalculator $feeCalculator,
+        private EnrollmentFeePolicy $feePolicy,
     ) {}
 
     /**
@@ -39,26 +43,15 @@ final readonly class AssessmentFormDataService
             'additionalFees',
         ]);
 
-        $subjects = $enrollment->subjectsEnrolled->map(function ($subjectEnrollment): array {
+        $configuration = $this->feePolicy->forEnrollment($enrollment);
+        $subjects = $enrollment->subjectsEnrolled->map(function ($subjectEnrollment) use ($configuration): array {
             $subject = $subjectEnrollment->subject;
             $class = $subjectEnrollment->class;
             $isModular = (bool) ($subjectEnrollment->is_modular ?? false);
             $excludeFromTuition = (bool) $subjectEnrollment->exclude_from_tuition;
-            $isNSTP = str_contains(mb_strtoupper((string) ($subject?->code ?? '')), 'NSTP');
-            $hasLab = (float) ($subject?->laboratory ?? 0) !== 0.0;
-
-            $totalSubjectUnits = (float) ($subject?->lecture ?? 0) + (float) ($subject?->laboratory ?? 0);
-            $lectureFee = $totalSubjectUnits * (float) ($subject?->course?->lec_per_unit ?? 0);
-
-            if ($isNSTP) {
-                $lectureFee *= 0.5;
-            }
-
-            $laboratoryFee = $hasLab ? (float) ($subject?->course?->lab_per_unit ?? 0) : 0.0;
-
-            if ($isModular && $hasLab) {
-                $laboratoryFee /= 2;
-            }
+            $fees = $this->feeCalculator->subject($subject?->toArray() ?? [], $configuration, $isModular, $subjectEnrollment->toArray());
+            $lectureFee = $fees['lecture_fee'];
+            $laboratoryFee = $fees['laboratory_fee'];
 
             if ($excludeFromTuition) {
                 $lectureFee = 0.0;
@@ -85,7 +78,7 @@ final readonly class AssessmentFormDataService
             ->where('is_modular', true)
             ->where('exclude_from_tuition', false)
             ->count();
-        $totalModularFee = $totalModularSubjects * 2400;
+        $totalModularFee = $totalModularSubjects * (float) $configuration['modular_fee'];
 
         $additionalFees = $enrollment->additionalFees->map(fn ($fee): array => [
             'name' => $fee->fee_name,
@@ -126,6 +119,7 @@ final readonly class AssessmentFormDataService
                 'laboratory' => $totalLaboratory,
                 'modular_subjects' => $totalModularSubjects,
                 'modular_fee' => $totalModularFee,
+                'modular_fee_per_subject' => (float) $configuration['modular_fee'],
             ],
             'additional_fees' => $additionalFees,
             'additional_fees_total' => $additionalFeesTotal,

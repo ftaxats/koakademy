@@ -20,7 +20,7 @@ use Illuminate\Support\Collection;
 
 final readonly class EnrollmentAssignmentService
 {
-    public function __construct(private ClassEnrollmentService $classes) {}
+    public function __construct(private ClassEnrollmentService $classes, private EnrollmentFeeCalculator $fees) {}
 
     /** @param array<string, mixed> $configuration */
     public function assignSubjects(EnrollmentContext $context, array $configuration): ActionResult
@@ -79,15 +79,11 @@ final readonly class EnrollmentAssignmentService
                 return ActionResult::failure("Subject [{$subject->code}] does not belong to the enrollment program.");
             }
 
-            $lecture = array_key_exists('lecture_fee', $item)
-                ? (float) $item['lecture_fee']
-                : ((int) $subject->lecture + (int) $subject->laboratory) * $lectureRate;
-            if (! array_key_exists('lecture_fee', $item) && str_contains(mb_strtoupper((string) $subject->code), 'NSTP')) {
-                $lecture *= (float) data_get($context->pinnedPolicyConfiguration, 'billing.configuration.nstp_lecture_multiplier', 0.5);
-            }
-            $laboratory = array_key_exists('laboratory_fee', $item)
-                ? (float) $item['laboratory_fee']
-                : ((int) $subject->laboratory > 0 ? $laboratoryRate : 0.0);
+            $fees = $this->fees->subject($subject->toArray(), [
+                ...data_get($context->pinnedPolicyConfiguration, 'billing.configuration', []),
+                'course_lecture_rate_per_unit' => $lectureRate,
+                'course_laboratory_rate_per_unit' => $laboratoryRate,
+            ], (bool) ($item['is_modular'] ?? false), $item);
 
             $record = $enrollment->subjectsEnrolled()->firstOrCreate(
                 ['subject_id' => $subject->id],
@@ -99,8 +95,8 @@ final readonly class EnrollmentAssignmentService
                     'semester' => $enrollment->semester,
                     'is_modular' => (bool) ($item['is_modular'] ?? false),
                     'exclude_from_tuition' => (bool) ($item['exclude_from_tuition'] ?? false),
-                    'lecture_fee' => $lecture,
-                    'laboratory_fee' => $laboratory,
+                    'lecture_fee' => $fees['lecture_fee'],
+                    'laboratory_fee' => $fees['laboratory_fee'],
                     'enrolled_lecture_units' => (int) $subject->lecture,
                     'enrolled_laboratory_units' => (int) $subject->laboratory,
                 ],
@@ -155,7 +151,7 @@ final readonly class EnrollmentAssignmentService
                 continue;
             }
             $class = $requestedClassId === null
-                ? $this->lockFirstAvailableClass($enrollment, $subjectEnrollment)
+                ? $this->lockFirstAvailableClass($enrollment, $subjectEnrollment, (bool) ($configuration['prefer_least_filled'] ?? false))
                 : Classes::query()->lockForUpdate()->find((int) $requestedClassId);
             if (! $class instanceof Classes || ! $this->classMatches($class, $enrollment, $subjectEnrollment)) {
                 if (($configuration['optional'] ?? false) === true && $requestedClassId === null) {
@@ -254,9 +250,9 @@ final readonly class EnrollmentAssignmentService
         })->filter()->values();
     }
 
-    private function lockFirstAvailableClass(StudentEnrollment $enrollment, SubjectEnrollment $subjectEnrollment): ?Classes
+    private function lockFirstAvailableClass(StudentEnrollment $enrollment, SubjectEnrollment $subjectEnrollment, bool $preferLeastFilled): ?Classes
     {
-        $candidateIds = Classes::query()
+        $candidates = Classes::query()
             ->forAcademicPeriod((string) $enrollment->school_year, (int) $enrollment->semester)
             ->when($enrollment->school_id !== null, fn (Builder $query): Builder => $query->where('school_id', $enrollment->school_id))
             ->where(function (Builder $query) use ($subjectEnrollment): void {
@@ -268,10 +264,17 @@ final readonly class EnrollmentAssignmentService
                     $query->orWhere('subject_code', $code);
                 }
             })
+            ->withCount(['class_enrollments as active_enrollment_count' => fn (Builder $query): Builder => $query->where('status', true)])
             ->orderBy('id')
-            ->pluck('id');
+            ->get();
 
-        foreach ($candidateIds as $candidateId) {
+        if ($preferLeastFilled) {
+            $candidates = $candidates->sortByDesc(static fn (Classes $class): float => (int) $class->maximum_slots <= 0
+                ? INF
+                : (float) $class->maximum_slots - (float) $class->getAttribute('active_enrollment_count'));
+        }
+        foreach ($candidates as $candidate) {
+            $candidateId = $candidate->id;
             $class = Classes::query()->lockForUpdate()->find($candidateId);
             if ($class instanceof Classes && ! $this->classIsFull($class, (int) $enrollment->student_id)) {
                 return $class;

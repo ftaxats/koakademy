@@ -65,6 +65,7 @@ interface AssessmentData {
         laboratory: number;
         modular_subjects: number;
         modular_fee: number;
+        modular_fee_per_subject: number;
     };
     additional_fees: Array<{
         name: string;
@@ -756,8 +757,8 @@ export default function AssessmentPreview({ data, enrollmentId }: PageProps) {
                                         {data.totals.modular_subjects > 0 && (
                                             <tr className="modular-note">
                                                 <td colSpan={6}>
-                                                    * {data.totals.modular_subjects} Modular Subject(s) @ {formatMoney(2400)} each =
-                                                    {formatMoney(data.totals.modular_fee)}
+                                                    * {data.totals.modular_subjects} Modular Subject(s) @{" "}
+                                                    {formatMoney(data.totals.modular_fee_per_subject)} each ={formatMoney(data.totals.modular_fee)}
                                                 </td>
                                             </tr>
                                         )}
@@ -788,10 +789,7 @@ export default function AssessmentPreview({ data, enrollmentId }: PageProps) {
                                                     const entries = subject.schedule[day] ?? [];
 
                                                     return (
-                                                        <td
-                                                            key={day}
-                                                            className={`${entries.length > 0 ? "schedule-cell-filled" : "text-center"}`}
-                                                        >
+                                                        <td key={day} className={`${entries.length > 0 ? "schedule-cell-filled" : "text-center"}`}>
                                                             {entries.length > 0
                                                                 ? entries.map((entry, entryIndex) => (
                                                                       <div key={`${day}-${entryIndex}`} className="schedule-entry">
