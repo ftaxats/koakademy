@@ -36,7 +36,7 @@ Settings are data, not executable PHP/JavaScript. Keep custom calculations in re
 
 ## Remaining compatibility boundaries
 
-Older Filament form/provider calculations still have their own fee formulas. The Filament API create handler now submits through the typed workflow and uses shared assignment/assessment logic in its legacy fallback. They need a separate migration to this contract before claiming identical pricing across every enrollment entry point. Curriculum-year miscellaneous inference remains the fallback when no policy override is supplied. Old Filament downpayment defaults remain unchanged.
+Filament subject selection, modular toggles, editable-unit quotes, row creation/hydration, and provider modular totals now use the shared pricing bridge. The Filament API create handler now submits through the typed workflow and uses shared assignment/assessment logic in its legacy fallback. Full interactive create/edit lifecycle verification and remaining legacy form defaults are still required before claiming parity across every entry point. Curriculum-year miscellaneous inference remains the fallback when no policy override is supplied. Filament downpayment field now accepts zero and resolves the policy suggestion; selecting a student loads scoped miscellaneous and downpayment defaults.
 
 ## Assignment behavior
 
@@ -84,3 +84,11 @@ Recorded `pass`/`passed` outcomes count. If outcome is null, the attempt's publi
 `accept_credited` defaults false. Enabling it trusts an existing `is_credited` row with matching `subject_id` or mapped `credited_subject_id` without requiring a grade; it does not invent an approval workflow. The source enrollment must still be completed in an earlier period. Arbitrary code equivalences and concurrent corequisites are not inferred.
 
 This is an opt-in completion gate, also usable as a branch condition. Existing fact-based `eligibility.prerequisites` remains unchanged. Saved-enrollment simulation evaluates it; hypothetical samples defer it. Curriculum prerequisites and grade records are read at check time rather than frozen into the enrollment policy snapshot. Irregular automatic assignment and full grading-policy migration remain separate work.
+
+## Interactive Filament pricing bridge
+
+`EnrollmentFormPricing` resolves published scoped policy values before creation and pinned snapshot values on existing enrollments. Subject callbacks use the shared fee calculator; form `lecture`/`laboratory` fields map explicitly to final `lecture_fee`/`laboratory_fee` during typed submission and relation creation. Opening a row no longer writes missing calculated fees back to the database during hydration.
+
+Provider totals include modular surcharge once in total tuition, honor tuition exclusions and zero miscellaneous, and treat an explicitly empty additional-fee list as removal rather than restoring database fees. Editing enrolled units recalculates both fee components through configured unit bases without writing curriculum units back to the subject model. Historical saved amounts still remain final until an explicit fee-affecting edit.
+
+Tests cover the pricing bridge and provider utility boundaries, not the complete Livewire form lifecycle. Existing live edit-total persistence, aggregate manual overrides, and legacy initial/reset defaults remain compatibility behavior; browser/Livewire workflow coverage is still pending.

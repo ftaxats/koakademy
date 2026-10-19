@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Providers;
 
+use App\Enrollment\EnrollmentFormPricing;
 use App\Enums\GradeEnum;
 use App\Models\Student;
 use App\Models\StudentEnrollment;
@@ -47,29 +48,12 @@ final class EnrollmentServiceProvider extends ServiceProvider
         $totalLecture = 0;
         $totalLaboratory = 0;
         $totalModularSubjects = 0;
-        $miscellaneousFee = 3500; // Default miscellaneous fee
-
-        // Eager load course if record exists to get miscellaneous fees
-        // Ensure student relationship is loaded before accessing course
-        if ($record && $record->relationLoaded('student') && $record->student && $record->student->relationLoaded('course') && $record->student->course) {
-            $miscellaneousFee = $record->student->course->miscelaneous ?? 3500;
-        } elseif ($record && $record->student_id) {
-            // If record exists but course not loaded, fetch it
-            $student = Student::with('course')->find($record->student_id);
-            if ($student && $student->course) {
-                $miscellaneousFee = $student->course->miscelaneous ?? 3500;
-            }
-        } elseif ($get('student_id')) {
-            // If creating and student_id is set, fetch student and course
-            $student = Student::with('course')->find($get('student_id'));
-            if ($student && $student->course) {
-                $miscellaneousFee = $student->course->miscelaneous ?? 3500;
-            }
-        }
+        $configuration = app(EnrollmentFormPricing::class)->configuration(['student_id' => $get('student_id'), 'semester' => $get('semester'), 'school_year' => $get('school_year')], $record);
+        $miscellaneousFee = $configuration['course_miscellaneous_fee'] ?? $configuration['miscellaneous_fee_fallback'];
 
         if ($subjectsEnrolled !== null) {
             foreach ($subjectsEnrolled as $subjectEnrolled) {
-                if (! empty($subjectEnrolled['subject_id'])) {
+                if (! empty($subjectEnrolled['subject_id']) && empty($subjectEnrolled['exclude_from_tuition'])) {
                     // Use the values from the form for lecture and lab fees
                     // Lecture fee does NOT include modular fee - it's calculated separately
                     $totalLecture += (float) ($subjectEnrolled['lecture'] ?? 0);
@@ -83,12 +67,12 @@ final class EnrollmentServiceProvider extends ServiceProvider
             }
         }
 
-        // Calculate total modular fee (2400 per modular subject)
-        $totalModularFee = $totalModularSubjects * 2400;
+        // Apply the pinned modular surcharge separately from subject lecture/lab amounts.
+        $totalModularFee = $totalModularSubjects * (float) $configuration['modular_fee'];
 
         $discount = (int) ($get('discount') ?? 0);
         $discountedLecture = $totalLecture * (1 - $discount / 100);
-        $discountedTuition = $discountedLecture + $totalLaboratory;
+        $discountedTuition = $discountedLecture + $totalLaboratory + $totalModularFee;
 
         // Calculate total additional fees
         // Handle both form state (create/edit) and database relationship (edit mode)
@@ -101,10 +85,11 @@ final class EnrollmentServiceProvider extends ServiceProvider
         }
 
         // Use form data if available (during form interaction), otherwise use database data
-        $additionalFees = $formAdditionalFees > 0 ? $formAdditionalFees : $dbAdditionalFees;
+        $additionalFees = $get('additionalFees') !== null ? $formAdditionalFees : $dbAdditionalFees;
 
         // Overall Total = Discounted Tuition + Miscellaneous + Additional Fees + Modular Fees
-        $overallTotal = $discountedTuition + $miscellaneousFee + $additionalFees + $totalModularFee;
+        $miscellaneousFee = (float) ($get('miscellaneous') ?? $miscellaneousFee);
+        $overallTotal = $discountedTuition + $miscellaneousFee + $additionalFees;
         $downPayment = (float) ($get('downpayment') ?? 0); // Ensure downpayment is float
         $balance = $overallTotal;
 
@@ -160,39 +145,24 @@ final class EnrollmentServiceProvider extends ServiceProvider
         $originalLecture = (float) ($get('original_lecture_amount') ?: $get('total_lectures')); // Fallback to current total if original not set
         $totalLaboratory = (float) $get('total_laboratory'); // Use the current lab total from the form
         $discount = (int) ($get('discount') ?? 0);
-        $miscellaneousFee = 3500; // Default
+        $configuration = app(EnrollmentFormPricing::class)->configuration(['student_id' => $get('student_id'), 'semester' => $get('semester'), 'school_year' => $get('school_year')], $record);
+        $miscellaneousFee = $configuration['course_miscellaneous_fee'] ?? $configuration['miscellaneous_fee_fallback'];
 
         // Count modular subjects from form state
         $subjectsEnrolled = $get('subjectsEnrolled');
         $totalModularSubjects = 0;
         if ($subjectsEnrolled !== null) {
             foreach ($subjectsEnrolled as $subjectEnrolled) {
-                if (! empty($subjectEnrolled['subject_id']) && ! empty($subjectEnrolled['is_modular'])) {
+                if (! empty($subjectEnrolled['subject_id']) && empty($subjectEnrolled['exclude_from_tuition']) && ! empty($subjectEnrolled['is_modular'])) {
                     $totalModularSubjects++;
                 }
             }
         }
-        $totalModularFee = $totalModularSubjects * 2400;
-
-        // Fetch miscellaneous fee based on record or student_id
-        // Ensure student relationship is loaded before accessing course
-        if ($record && $record->relationLoaded('student') && $record->student && $record->student->relationLoaded('course') && $record->student->course) {
-            $miscellaneousFee = $record->student->course->miscelaneous ?? 3500;
-        } elseif ($record && $record->student_id) {
-            $student = Student::with('course')->find($record->student_id);
-            if ($student && $student->course) {
-                $miscellaneousFee = $student->course->miscelaneous ?? 3500;
-            }
-        } elseif ($get('student_id')) {
-            $student = Student::with('course')->find($get('student_id'));
-            if ($student && $student->course) {
-                $miscellaneousFee = $student->course->miscelaneous ?? 3500;
-            }
-        }
+        $totalModularFee = $totalModularSubjects * (float) $configuration['modular_fee'];
 
         // Apply discount only to the lecture portion, using the original/current lecture amount
         $discountedLectures = $originalLecture * (1 - $discount / 100);
-        $discountedTuition = $discountedLectures + $totalLaboratory; // Add the current lab total
+        $discountedTuition = $discountedLectures + $totalLaboratory + $totalModularFee; // Add the current lab total
 
         // Calculate total additional fees
         // Handle both form state (create/edit) and database relationship (edit mode)
@@ -205,10 +175,11 @@ final class EnrollmentServiceProvider extends ServiceProvider
         }
 
         // Use form data if available (during form interaction), otherwise use database data
-        $additionalFees = $formAdditionalFees > 0 ? $formAdditionalFees : $dbAdditionalFees;
+        $additionalFees = $get('additionalFees') !== null ? $formAdditionalFees : $dbAdditionalFees;
 
         // Overall Total = Discounted Tuition + Miscellaneous + Additional Fees + Modular Fees
-        $overallTotal = $discountedTuition + $miscellaneousFee + $additionalFees + $totalModularFee;
+        $miscellaneousFee = (float) ($get('miscellaneous') ?? $miscellaneousFee);
+        $overallTotal = $discountedTuition + $miscellaneousFee + $additionalFees;
         $downPayment = (float) ($get('downpayment') ?? 0); // Ensure float
         $balance = $overallTotal;
 

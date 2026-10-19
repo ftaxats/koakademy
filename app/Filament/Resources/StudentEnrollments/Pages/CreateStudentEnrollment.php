@@ -78,7 +78,11 @@ final class CreateStudentEnrollment extends CreateRecord
     protected function handleRecordCreation(array $data): Model
     {
         $raw = $this->form->getRawState();
-        $subjects = array_values(array_filter($raw['subjectsEnrolled'] ?? [], is_array(...)));
+        $subjects = array_map(static fn (array $subject): array => [
+            ...$subject,
+            'lecture_fee' => $subject['lecture'] ?? $subject['lecture_fee'] ?? null,
+            'laboratory_fee' => $subject['laboratory'] ?? $subject['laboratory_fee'] ?? null,
+        ], array_values(array_filter($raw['subjectsEnrolled'] ?? [], is_array(...))));
         $additionalFees = array_values(array_filter($raw['additionalFees'] ?? [], is_array(...)));
         $actor = Auth::user();
         $enrollment = app(EnrollmentWorkflowCoordinator::class)->submit(new EnrollmentSubmissionData(
