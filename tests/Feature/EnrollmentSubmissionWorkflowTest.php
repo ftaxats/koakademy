@@ -1231,7 +1231,7 @@ it('requires a reason, an authorized actor and a payment acknowledgement before 
         ->and(EnrollmentWorkflowEvent::query()->where('event_type', 'cancel_failed')->count())->toBe(1);
 });
 
-it('refuses to cancel a completed policy enrollment before it is reopened', function (): void {
+it('cancels completed paid enrollment and restores completion without reversing receipts', function (): void {
     Queue::fake();
     $school = School::factory()->create();
     $course = App\Models\Course::factory()->create(['school_id' => $school->id]);
@@ -1248,11 +1248,19 @@ it('refuses to cancel a completed policy enrollment before it is reopened', func
     ], 'cancel-completed-payment');
     $this->actor->givePermissionTo(Permission::findOrCreate('Cancel:StudentEnrollment', 'web'));
 
-    expect(fn () => $coordinator->cancel($enrollment->refresh(), $this->actor, 'Changed our minds.', 'cancel-completed-1'))
-        ->toThrow(EnrollmentTransitionException::class, 'Reopen this enrollment before cancelling');
+    expect(fn () => $coordinator->cancel($enrollment->refresh(), $this->actor, 'Student withdrew.', 'cancel-completed-no-ack'))
+        ->toThrow(EnrollmentTransitionException::class, 'still holds');
+    $coordinator->cancel($enrollment->refresh(), $this->actor, 'Student withdrew; finance will review refund.', 'cancel-completed-1', true);
 
-    expect($enrollment->refresh()->terminal_outcome)->toBe('completed')
-        ->and($student->refresh()->status)->toBe(StudentStatus::Enrolled);
+    expect($enrollment->refresh()->terminal_outcome)->toBe('cancelled');
+    expect($student->refresh()->status)->toBe(StudentStatus::Enrolled);
+    expect($enrollment->enrollmentTransactions()->count())->toBe(1);
+    expect(data_get(EnrollmentWorkflowEvent::query()->where('event_type', 'cancelled')->latest('id')->value('result'), 'from_terminal_outcome'))->toBe('completed');
+    $this->actor->givePermissionTo(Permission::findOrCreate('Reopen:StudentEnrollment', 'web'));
+    $coordinator->reopen($enrollment->fresh(), $this->actor, null, 'Cancellation entered in error.', 'undo-paid-cancel');
+    expect($enrollment->refresh()->terminal_outcome)->toBe('completed');
+    expect($enrollment->current_step_key)->toBe('completed');
+    expect($enrollment->enrollmentTransactions()->count())->toBe(1);
 });
 
 it('cancels a policy enrollment through the configured cancellation stage', function (): void {
@@ -1493,4 +1501,23 @@ it('blocks completion when verified prerequisite history is missing', function (
         ->toThrow(EnrollmentTransitionException::class, 'Required prerequisite subjects');
     expect($enrollment->refresh()->current_step_key)->toBe('academic_verified');
     expect($enrollment->terminal_outcome)->toBeNull();
+});
+
+it('dispatches configured student inbox notifications once after a transition', function (): void {
+    NotificationFacade::fake();
+    $school = School::factory()->create();
+    $course = App\Models\Course::factory()->create(['school_id' => $school->id]);
+    $portalUser = User::factory()->create(['role' => UserRole::Student, 'school_id' => $school->id]);
+    $student = Student::factory()->create(['school_id' => $school->id, 'course_id' => $course->id, 'user_id' => $portalUser->id, 'email' => null]);
+    $subject = Subject::factory()->create(['course_id' => $course->id]);
+    $configuration = EnrollmentPolicyPreset::standard();
+    $configuration['notifications'] = [['event' => 'academic_verified', 'channel' => 'database', 'enabled' => true]];
+    ($this->publishEnrollmentPolicy)($configuration, $school);
+    $coordinator = app(EnrollmentWorkflowCoordinator::class);
+    $enrollment = $coordinator->submit(($this->submissionFor)($student, $subject, 'inbox-submission'));
+
+    $coordinator->verifyAcademic($enrollment, $this->actor, 'inbox-academic');
+    $coordinator->verifyAcademic($enrollment->fresh(), $this->actor, 'inbox-academic');
+
+    NotificationFacade::assertSentToTimes($portalUser, App\Notifications\EnrollmentDatabaseNotification::class, 1);
 });

@@ -215,15 +215,15 @@ final readonly class EnrollmentTransitionEngine
                     if (! in_array($notification['event'] ?? null, ['any_transition', $target['key'], $target['outcome'] ?? null], true)) {
                         continue;
                     }
-                    if (($notification['channel'] ?? 'mail') !== 'mail') {
-                        throw new EnrollmentTransitionException('The core notification action currently supports email only.');
+                    if (! in_array($notification['channel'] ?? 'mail', ['mail', 'database'], true)) {
+                        throw new EnrollmentTransitionException('Enrollment notifications support email and student inbox only.');
                     }
 
                     $template = (string) ($notification['template'] ?? (($target['terminal'] ?? false) ? 'assessment' : 'status_update'));
 
                     $result = $this->registry->action('enrollment.notify')->execute(
                         $context,
-                        ['notification' => $template],
+                        ['notification' => $template, 'channel' => $notification['channel'] ?? 'mail'],
                         "{$idempotencyKey}:notification:{$index}",
                     );
                     $actionResults[] = ['key' => 'enrollment.notify', 'successful' => $result->successful, 'message' => $result->message, 'metadata' => $result->metadata];
@@ -293,6 +293,28 @@ final readonly class EnrollmentTransitionEngine
             }
             if ($locked->terminal_outcome === null) {
                 throw new EnrollmentTransitionException('Only a terminal enrollment can be reopened.');
+            }
+
+            $cancellation = EnrollmentWorkflowEvent::query()->where('student_enrollment_id', $locked->id)
+                ->where('event_type', 'cancelled')->latest('id')->first();
+            if ($locked->terminal_outcome === 'cancelled' && data_get($cancellation?->result, 'from_terminal_outcome') === 'completed') {
+                if ($targetStepKey !== null) {
+                    throw new EnrollmentTransitionException('Undo this cancellation before reopening a completed verification.');
+                }
+                $locked->forceFill([
+                    'terminal_outcome' => 'completed', 'status' => data_get($cancellation->result, 'from_status', $locked->status),
+                    'current_step_key' => $cancellation->from_step_key,
+                ])->save();
+                EnrollmentWorkflowEvent::query()->create([
+                    'student_enrollment_id' => $locked->id, 'enrollment_policy_snapshot_id' => $locked->enrollment_policy_snapshot_id,
+                    'actor_id' => $actor->id, 'event_type' => 'reopened', 'from_step_key' => $cancellation->to_step_key,
+                    'to_step_key' => $locked->current_step_key, 'status' => $locked->status, 'terminal_outcome' => 'completed',
+                    'idempotency_key' => $idempotencyKey, 'reason' => $reason,
+                    'result' => ['cancellation_event_id' => $cancellation->id, 'payment_reversal' => ['skipped' => true],
+                        'seats_restored' => false],
+                ]);
+
+                return new TransitionResult(true, $cancellation->to_step_key, $locked->current_step_key, 'completed', message: 'Cancellation undone; cashier verification and payments retained. Reassign released class seats separately.');
             }
 
             $snapshot = $locked->policySnapshot()->firstOrFail();

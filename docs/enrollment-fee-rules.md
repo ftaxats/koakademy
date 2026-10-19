@@ -46,7 +46,7 @@ The unsupported **Include eligible irregular subjects** control was removed. Aut
 
 ## Deferred work
 
-This change does not add dynamic semesters/year catalogs, arbitrary discount scopes, new notification channels, prerequisite/grade fact providers, or full Filament/API migration. Those require separate domain changes and end-to-end coverage; their controls are not added here.
+This change does not add dynamic semesters/year catalogs, arbitrary discount scopes, SMS/broadcast notification channels, prerequisite/grade fact providers, or full Filament/API migration. Those require separate domain changes and end-to-end coverage; their controls are not added here.
 
 ## Trusted completion limits
 
@@ -98,3 +98,27 @@ Tests cover the pricing bridge/provider utilities plus actual Livewire legacy/po
 Actual Livewire tests cover legacy and policy creation, saved-fee preservation, modular toggles, and a pinned fractional multiplier. Legacy create now writes required tuition semester/year metadata. Edit upserts carry student and period metadata too.
 
 Policy edits derive final tuition components from saved subject rows through `AssessmentCalculationService` after relationship saving, rather than trusting nested callback totals. Aggregate component overrides on policy edits are therefore recalculated; edit final subject fees for intentional per-subject adjustments. Explicit miscellaneous/discount inputs remain supported, and existing finance assessment adjustments are preserved by the established reconciliation service. Legacy aggregate override behavior is unchanged.
+
+## Student inbox notification channel
+
+Pipeline notifications and `enrollment.notify` actions now accept `mail` (existing default) or `database`. Database delivery writes a status-only notification to the student's explicitly linked `User` inbox; it does not attach PDF assessments or render email/custom body templates. Enrollment ID, status, step/outcome, school year, and semester are captured when queued so later workflow changes cannot rewrite queued content.
+
+Student email is not required for database delivery. Recipient must be `student.user_id`, have a student/graduate/SHS-student role, and have no conflicting school association. There is no email-based or legacy Account fallback. Missing/invalid recipient fails the configured action, rolling back a transition; disabled notifications remain skipped. Workflow retries use existing transition idempotency and do not dispatch twice. Direct action invocations retain the existing caller responsibility for idempotency.
+
+Only email and database are exposed in the pipeline channel picker. SMS/broadcast require separate providers and remain unsupported. Queueing occurs after transaction commit. Existing shared inbox ownership checks continue to control reading notifications.
+
+## Cancelling after cashier verification
+
+Staff with `Cancel:StudentEnrollment` can cancel a legacy cashier-verified or policy-completed enrollment directly from its detail-page action menu. A reason is mandatory. Recorded linked payments and authoritative assessment paid amounts require explicit acknowledgement; cancellation does not delete payments, revoke receipts, refund, or reduce tuition balances.
+
+The term receives `terminal_outcome=cancelled`, with prior outcome/status recorded in the audit event. Eligible reserved seats are released; shared seats remain protected. Policy-completed student/account synchronization is retained as history rather than demoting the global student. Legacy cashier status is likewise retained as reporting history. Cancellation is not an institution-wide `StudentStatus::Withdrawn` action: record withdrawal as the reason, then use separate registrar/finance processes for global status and financial resolution.
+
+Undoing cancellation of a policy-completed enrollment restores its prior completed step/outcome without reversing receipts. Released seats are not restored automatically and must be reassigned with capacity checks. Rejected terminal enrollments still require a deliberate reopen before cancellation. Existing pre-completion cancellation reversal behavior is unchanged.
+
+## Eligible back-subject selection
+
+Automatic curriculum assignment now exposes `curriculum_selection`: `current_year` preserves existing behavior; `eligible_back_subjects` is opt-in. The latter considers same-program subjects offered in the enrollment semester, from year 1 through the student's enrollment year. Already completed subjects are excluded; every prerequisite must have a verified passing earlier completed same-school attempt under the same history contract as the prerequisite gate. Credits without passing outcomes are not automatically accepted in this selection mode. Malformed, missing, foreign-school and self-prerequisite definitions are skipped. Same-period/corequisite passes and cross-program equivalences are not inferred.
+
+Candidates sort by curriculum year, code and ID. Assignment is additive/idempotent, not a destructive reconciliation: retries keep existing rows, and previously assigned staff overrides are not removed. No eligible candidates produces a clear assignment failure. Invalid school/program/period context fails closed. A saved-enrollment recommendation returns candidate subject IDs without writes; hypothetical contexts report selection unavailable.
+
+This does not choose sections, enforce an automatic unit budget, or guarantee no schedule conflicts. Configure class assignment and verified unit/schedule/prerequisite completion gates separately. Existing ignored `include_irregular_subjects` flags remain unchanged and do not opt in to this new mode.
