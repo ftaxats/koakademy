@@ -46,7 +46,7 @@ The unsupported **Include eligible irregular subjects** control was removed. Aut
 
 ## Deferred work
 
-This change does not add dynamic semesters/year catalogs, arbitrary discount scopes, new notification channels, prerequisite/grade/schedule fact providers, or full Filament/API migration. Those require separate domain changes and end-to-end coverage; their controls are not added here.
+This change does not add dynamic semesters/year catalogs, arbitrary discount scopes, new notification channels, prerequisite/grade fact providers, or full Filament/API migration. Those require separate domain changes and end-to-end coverage; their controls are not added here.
 
 ## Trusted completion limits
 
@@ -66,3 +66,11 @@ Payment verification and the `billing.minimum_payment` completion rule share `En
 The minimum is cumulative, not a fresh minimum on every installment. Pending/reversed transactions, additional-fee-only receipts, opening paid caches, expected downpayments, and caller `payment_amount` facts do not satisfy this gate. This intentionally tightens older completion checks that counted every linked charge. Percentage minimums require a saved assessment. No-receipt verification still requires the configured minimum to have already been received. Settlement values must be finite and non-negative. Idempotent replays do not add their incoming amount twice.
 
 The Filament API create handler now honors policy workflow actions and snapshots, shares fee formulas with administrator enrollment, and supports `Idempotency-Key`. Legacy creation preserves supplied final fees and validates assigned classes through the shared assignment service. Invalid workflows/assignments use framework validation responses rather than returning raw exception details in a custom 500 response. Form validation retains its existing field constraints.
+
+## Verified schedule completion gate
+
+`academics.verified_schedule` adds a code-backed rule to the pipeline editor. Configure `minimum_gap_minutes` (whole minutes, 0–1440; default 0) and `missing_schedule` (`block` by default, or explicit `allow`). It checks saved active class roster sections for the same school, semester, and normalized school year. It includes other active sections in that period even if not linked to this enrollment's subject rows, and ignores caller eligibility facts.
+
+Different sections cannot overlap on the same normalized weekday. Back-to-back classes pass with zero gap; an exact configured gap passes. Repeated sessions within the same section are not treated as cross-class conflicts. Missing/unknown days and non-increasing or overnight time ranges are unchecked data: default blocks, while explicit allow reports unchecked class IDs. No active sections fails closed. Subjects without assigned sections are outside this rule's scope.
+
+The gate runs at completion, or explicitly as a branch condition. Saved-enrollment simulation evaluates it; hypothetical samples defer it. A blocked transition rolls back. Existing `eligibility.schedule_conflict` retains its fact-based compatibility behavior. This check reads current schedules and is not a reservation or a guarantee against concurrent timetable edits after verification.

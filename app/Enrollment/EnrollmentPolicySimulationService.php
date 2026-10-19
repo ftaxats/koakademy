@@ -31,7 +31,7 @@ final readonly class EnrollmentPolicySimulationService
         foreach ($compiled->configuration['rules'] ?? [] as $rule) {
             $handler = (string) $rule['handler'];
             $result = EnrollmentRuleTiming::appliesAtCompletion($handler)
-                && (! in_array($handler, ['academics.maximum_assigned_units', 'billing.maximum_other_assessment_balance'], true) || ! $context->enrollment?->exists)
+                && (! EnrollmentRuleTiming::usesSavedRecordsAtCompletion($handler) || ! $context->enrollment?->exists)
                 ? RuleResult::pass(['deferred' => true, 'enforcement' => 'terminal_transition'])
                 : $this->registry->rule($handler)->evaluate($context, $rule['configuration'] ?? []);
             $category = (string) data_get($manifest, "rules.{$rule['handler']}.category", 'eligibility');

@@ -20,6 +20,7 @@ use App\Enrollment\EnrollmentTuitionService;
 use App\Enrollment\EnrollmentWorkflowCoordinator;
 use App\Enrollment\Rules\ConfiguredEnrollmentRuleHandler;
 use App\Enrollment\Rules\EnrollmentRecordLimitRule;
+use App\Enrollment\Rules\EnrollmentScheduleRule;
 use App\Enrollment\Strategies\ConfiguredAssignmentStrategy;
 use App\Enrollment\Strategies\ConfiguredBillingStrategy;
 use App\Models\StudentEnrollment;
@@ -44,6 +45,7 @@ final class EnrollmentPolicyServiceProvider extends ServiceProvider
             foreach (['academics.maximum_assigned_units', 'billing.maximum_other_assessment_balance'] as $key) {
                 $registry->registerRule(new EnrollmentRecordLimitRule($key, $this->app->make(EnrollmentBillingService::class)));
             }
+            $registry->registerRule(new EnrollmentScheduleRule);
             foreach ($this->stateActionCatalog() as $key => $label) {
                 $registry->registerAction(new EnrollmentStateActionHandler($key, $label, $studentSynchronization));
             }

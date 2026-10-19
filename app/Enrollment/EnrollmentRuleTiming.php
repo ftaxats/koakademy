@@ -13,6 +13,11 @@ final class EnrollmentRuleTiming
 
     public static function appliesAtCompletion(string $handler): bool
     {
-        return in_array($handler, ['billing.minimum_payment', 'academics.maximum_assigned_units', 'billing.maximum_other_assessment_balance'], true);
+        return $handler === 'billing.minimum_payment' || self::usesSavedRecordsAtCompletion($handler);
+    }
+
+    public static function usesSavedRecordsAtCompletion(string $handler): bool
+    {
+        return in_array($handler, ['academics.maximum_assigned_units', 'billing.maximum_other_assessment_balance', 'academics.verified_schedule'], true);
     }
 }

@@ -1450,3 +1450,27 @@ it('enforces record limits on terminal entry workflows and rolls back submission
     $this->assertDatabaseMissing('student_enrollment', ['student_id' => $student->id]);
     $this->assertDatabaseMissing('subject_enrollments', ['student_id' => $student->id]);
 });
+
+it('blocks completion when saved active sections overlap', function (): void {
+    $school = School::factory()->create();
+    $course = App\Models\Course::factory()->create(['school_id' => $school->id]);
+    $student = Student::factory()->create(['school_id' => $school->id, 'course_id' => $course->id]);
+    $subject = Subject::factory()->create(['course_id' => $course->id]);
+    $configuration = EnrollmentPolicyPreset::standard();
+    $configuration['rules'][] = ['key' => 'verified_schedule', 'handler' => 'academics.verified_schedule', 'configuration' => []];
+    $configuration['workflow']['steps'][2]['actions'] = [];
+    ($this->publishEnrollmentPolicy)($configuration, $school);
+    $coordinator = app(EnrollmentWorkflowCoordinator::class);
+    $enrollment = $coordinator->submit(($this->submissionFor)($student, $subject, 'saved-schedule-gate'));
+    foreach (['09:00', '09:30'] as $start) {
+        $class = App\Models\Classes::factory()->create(['school_id' => $school->id, 'school_year' => $enrollment->school_year, 'semester' => $enrollment->semester]);
+        App\Models\ClassEnrollment::query()->create(['student_id' => $student->id, 'class_id' => $class->id, 'status' => true]);
+        App\Models\Schedule::factory()->create(['class_id' => $class->id, 'day_of_week' => 'Monday', 'start_time' => $start, 'end_time' => '11:00']);
+    }
+    $coordinator->verifyAcademic($enrollment, $this->actor, 'saved-schedule-academic');
+
+    expect(fn () => $coordinator->transition($enrollment->fresh(), $this->actor, null, [], 'saved-schedule-completion'))
+        ->toThrow(EnrollmentTransitionException::class, 'Assigned sections overlap');
+    expect($enrollment->refresh()->current_step_key)->toBe('academic_verified');
+    expect($enrollment->terminal_outcome)->toBeNull();
+});
