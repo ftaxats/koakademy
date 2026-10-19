@@ -91,4 +91,10 @@ This is an opt-in completion gate, also usable as a branch condition. Existing f
 
 Provider totals include modular surcharge once in total tuition, honor tuition exclusions and zero miscellaneous, and treat an explicitly empty additional-fee list as removal rather than restoring database fees. Editing enrolled units recalculates both fee components through configured unit bases without writing curriculum units back to the subject model. Historical saved amounts still remain final until an explicit fee-affecting edit.
 
-Tests cover the pricing bridge and provider utility boundaries, not the complete Livewire form lifecycle. Existing live edit-total persistence, aggregate manual overrides, and legacy initial/reset defaults remain compatibility behavior; browser/Livewire workflow coverage is still pending.
+Tests cover the pricing bridge/provider utilities plus actual Livewire legacy/policy create and modular edit/save paths. Existing live edit-total persistence, aggregate manual overrides, and legacy initial/reset defaults remain compatibility behavior; real-browser workflow coverage and wider manual override cases remain pending.
+
+## Filament lifecycle verification
+
+Actual Livewire tests cover legacy and policy creation, saved-fee preservation, modular toggles, and a pinned fractional multiplier. Legacy create now writes required tuition semester/year metadata. Edit upserts carry student and period metadata too.
+
+Policy edits derive final tuition components from saved subject rows through `AssessmentCalculationService` after relationship saving, rather than trusting nested callback totals. Aggregate component overrides on policy edits are therefore recalculated; edit final subject fees for intentional per-subject adjustments. Explicit miscellaneous/discount inputs remain supported, and existing finance assessment adjustments are preserved by the established reconciliation service. Legacy aggregate override behavior is unchanged.

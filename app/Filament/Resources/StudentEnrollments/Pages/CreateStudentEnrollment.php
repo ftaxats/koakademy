@@ -128,6 +128,9 @@ final class CreateStudentEnrollment extends CreateRecord
             $tuition = StudentTuition::create([
                 'enrollment_id' => $this->record->id,
                 'student_id' => $this->record->student_id,
+                'semester' => $this->record->semester,
+                'school_year' => $this->record->school_year,
+                'academic_year' => $this->record->academic_year,
                 ...$this->tuitionData,
             ]);
 

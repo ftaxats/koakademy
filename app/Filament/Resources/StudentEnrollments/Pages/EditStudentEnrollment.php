@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace App\Filament\Resources\StudentEnrollments\Pages;
 
 use App\Filament\Resources\StudentEnrollments\StudentEnrollmentResource;
+use App\Models\StudentEnrollment;
 use App\Models\StudentTuition;
+use App\Services\AssessmentCalculationService;
 use App\Services\EnrollmentBillingService;
 use App\Services\TuitionAdjustmentRecalculationService;
 use Filament\Actions\DeleteAction;
@@ -83,9 +85,28 @@ final class EditStudentEnrollment extends EditRecord
     {
         // Update or create the student tuition record
         if ($this->tuitionData !== []) {
+            if ($this->record->workflow_runtime === StudentEnrollment::WorkflowRuntimePolicyV1) {
+                $calculated = app(AssessmentCalculationService::class)->calculateFromEnrolledSubjects(
+                    $this->record->fresh(),
+                    discountPercentage: (int) ($this->tuitionData['discount'] ?? 0),
+                    miscellaneousOverride: (float) $this->tuitionData['total_miscelaneous_fees'],
+                );
+                $this->tuitionData = [
+                    ...$this->tuitionData,
+                    'total_lectures' => $calculated['discounted_lecture'],
+                    'total_laboratory' => $calculated['laboratory'],
+                    'total_tuition' => $calculated['total_tuition'],
+                    'overall_tuition' => $calculated['overall_tuition'],
+                    'total_balance' => $calculated['overall_tuition'],
+                ];
+            }
             $existingTuition = StudentTuition::query()->where('enrollment_id', $this->record->id)->first();
             $tuitionData = app(TuitionAdjustmentRecalculationService::class)
-                ->preserveFinanceAdjustment($existingTuition, $this->tuitionData);
+                ->preserveFinanceAdjustment($existingTuition, [
+                    ...$this->tuitionData, 'student_id' => $this->record->student_id,
+                    'semester' => $this->record->semester, 'school_year' => $this->record->school_year,
+                    'academic_year' => $this->record->academic_year,
+                ]);
             $tuition = StudentTuition::updateOrCreate(
                 ['enrollment_id' => $this->record->id],
                 $tuitionData
