@@ -1,4 +1,5 @@
 import { store as storeDiscount } from "@/actions/App/Http/Controllers/AdministratorEnrollmentDiscountController";
+import { calculateSubjectFees, getStudentDetails } from "@/actions/App/Http/Controllers/AdministratorEnrollmentManagementController";
 import AdminLayout from "@/components/administrators/admin-layout";
 import {
     AlertDialog,
@@ -199,7 +200,17 @@ interface EnrollmentData {
     }>;
 }
 
+interface BillingConfiguration {
+    nstp_lecture_multiplier: number;
+    modular_laboratory_multiplier: number;
+    modular_fee: number;
+    default_downpayment: number;
+    course_lecture_rate_per_unit?: number;
+    course_laboratory_rate_per_unit?: number;
+}
+
 interface CreateEnrollmentProps {
+    billingConfiguration: BillingConfiguration;
     user: User;
     settings: {
         currentSemester: number;
@@ -256,10 +267,14 @@ const COLORS = [
     "bg-red-100 border-red-300 text-red-800 dark:bg-red-900/30 dark:border-red-700 dark:text-red-300",
 ];
 
-// Modular fee constant
-const MODULAR_FEE_PER_SUBJECT = 2400;
-
-export default function AdministratorEnrollmentCreate({ user, settings, discounts, enrollment, flash }: CreateEnrollmentProps) {
+export default function AdministratorEnrollmentCreate({
+    user,
+    settings,
+    discounts,
+    enrollment,
+    flash,
+    billingConfiguration: initialBillingConfiguration,
+}: CreateEnrollmentProps) {
     const { props } = usePage<{ branding?: Branding }>();
     const currency = props.branding?.currency || "PHP";
 
@@ -273,6 +288,11 @@ export default function AdministratorEnrollmentCreate({ user, settings, discount
     };
 
     const isEdit = Boolean(enrollment);
+    const [billingConfiguration, setBillingConfiguration] = useState(initialBillingConfiguration);
+    const [billingLoading, setBillingLoading] = useState(false);
+    const [billingError, setBillingError] = useState(false);
+    const pendingFeeQuotes = useRef(0);
+    const feeQuoteVersions = useRef(new Map<number, number>());
     // Student search state
     const [studentOpen, setStudentOpen] = useState(false);
     const [studentSearch, setStudentSearch] = useState("");
@@ -321,7 +341,7 @@ export default function AdministratorEnrollmentCreate({ user, settings, discount
     const [discountPercentage, setDiscountPercentage] = useState("");
     const [discountErrors, setDiscountErrors] = useState<Record<string, string>>({});
     const [creatingDiscount, setCreatingDiscount] = useState(false);
-    const [downpayment, setDownpayment] = useState(Number(enrollment?.tuition?.downpayment ?? 3500) || 0);
+    const [downpayment, setDownpayment] = useState(Number(enrollment?.tuition?.downpayment ?? initialBillingConfiguration.default_downpayment) || 0);
     const [additionalFees, setAdditionalFees] = useState<AdditionalFee[]>(
         enrollment
             ? enrollment.additional_fees.map((fee) => ({
@@ -337,6 +357,10 @@ export default function AdministratorEnrollmentCreate({ user, settings, discount
     const [confirmedOverloadClassIds, setConfirmedOverloadClassIds] = useState<number[]>([]);
     const [pendingOverloadConfirmation, setPendingOverloadConfirmation] = useState<PendingOverloadConfirmation | null>(null);
 
+    const feeContextKey = `${selectedStudent?.id}:${semester}:${enrollment?.school_year ?? settings.currentSchoolYear}`;
+    const currentFeeContext = useRef(feeContextKey);
+    currentFeeContext.current = feeContextKey;
+
     const isTesdaPathway = selectedStudent?.curriculum_kind === "tesda_qualification";
     const academicYearOptions = isTesdaPathway
         ? [
@@ -347,6 +371,43 @@ export default function AdministratorEnrollmentCreate({ user, settings, discount
               ["5", "Training Level 5"],
           ]
         : Object.entries(settings.availableAcademicYears);
+
+    useEffect(() => {
+        if (isEdit || !selectedStudent) return;
+        const controller = new AbortController();
+        setSubjectsEnrolled([]);
+        setBillingLoading(true);
+        setBillingError(false);
+        fetch(
+            getStudentDetails.url({
+                query: {
+                    student_id: selectedStudent.id,
+                    semester,
+                    school_year: settings.currentSchoolYear,
+                },
+            }),
+            { signal: controller.signal },
+        )
+            .then((response) => {
+                if (!response.ok) throw new Error("Billing rules unavailable");
+                return response.json();
+            })
+            .then((details) => {
+                setBillingConfiguration(details.billing_configuration);
+                setMiscellaneousFee(Number(details.miscellaneous_fee) || 0);
+                setDownpayment(Number(details.billing_configuration.default_downpayment) || 0);
+            })
+            .catch((error) => {
+                if (error.name !== "AbortError") {
+                    setBillingError(true);
+                    toast.error("Could not load enrollment billing rules. Reload before saving.");
+                }
+            })
+            .finally(() => {
+                if (!controller.signal.aborted) setBillingLoading(false);
+            });
+        return () => controller.abort();
+    }, [isEdit, selectedStudent?.id, semester, settings.currentSchoolYear]);
 
     // Refs for debouncing
     const studentSearchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -446,24 +507,28 @@ export default function AdministratorEnrollmentCreate({ user, settings, discount
     };
 
     // Calculate fees for a subject
-    const calculateFees = (subject: SubjectOption, isModular = false) => {
-        const isNSTP = subject.code.toUpperCase().includes("NSTP");
-        const totalUnits = subject.lecture + subject.laboratory;
-
-        let lectureFee = subject.lecture ? totalUnits * subject.lec_per_unit : 0;
-        if (isNSTP) {
-            lectureFee *= 0.5;
+    const calculateFees = async (subjectId: number, isModular = false) => {
+        const contextKey = feeContextKey;
+        pendingFeeQuotes.current++;
+        try {
+            const response = await fetch(
+                calculateSubjectFees.url({
+                    query: {
+                        subject_id: subjectId,
+                        is_modular: isModular ? 1 : 0,
+                        ...(enrollment ? { enrollment_id: enrollment.id } : { student_id: selectedStudent?.id }),
+                        semester,
+                        school_year: enrollment?.school_year ?? settings.currentSchoolYear,
+                    },
+                }),
+            );
+            if (!response.ok) throw new Error("Could not calculate subject fees");
+            const fees = (await response.json()) as { lecture_fee: number; laboratory_fee: number };
+            if (currentFeeContext.current !== contextKey) throw new Error("Enrollment context changed");
+            return fees;
+        } finally {
+            pendingFeeQuotes.current--;
         }
-
-        let laboratoryFee = subject.laboratory ? 1 * subject.lab_per_unit : 0;
-        if (isModular && subject.laboratory) {
-            laboratoryFee = laboratoryFee / 2;
-        }
-
-        return {
-            lecture_fee: Math.round(lectureFee * 100) / 100,
-            laboratory_fee: Math.round(laboratoryFee * 100) / 100,
-        };
     };
 
     const loadSectionsForSubject = useCallback(
@@ -502,7 +567,13 @@ export default function AdministratorEnrollmentCreate({ user, settings, discount
         }
 
         // Add subject
-        const fees = calculateFees(subject, false);
+        let fees;
+        try {
+            fees = await calculateFees(subject.id, false);
+        } catch {
+            toast.error("Could not calculate subject fees. Subject was not added.");
+            return;
+        }
         const newSubject: SubjectEnrollment = {
             id: generateId(),
             subject_id: subject.id,
@@ -522,7 +593,7 @@ export default function AdministratorEnrollmentCreate({ user, settings, discount
             has_classes: subject.has_classes,
         };
 
-        setSubjectsEnrolled((prev) => [...prev, newSubject]);
+        setSubjectsEnrolled((prev) => (prev.some((row) => row.subject_id === subject.id) ? prev : [...prev, newSubject]));
 
         // Load sections if subject has classes
         if (subject.has_classes && selectedStudent?.course_id) {
@@ -577,17 +648,20 @@ export default function AdministratorEnrollmentCreate({ user, settings, discount
     };
 
     // Toggle modular
-    const toggleModular = (subjectId: number, isModular: boolean) => {
+    const toggleModular = async (subjectId: number, isModular: boolean) => {
         const subject = subjectsEnrolled.find((s) => s.subject_id === subjectId);
         if (!subject) return;
 
-        const subjectOption = subjectOptions.find((o) => o.id === subjectId);
-        if (!subjectOption) {
-            updateSubject(subjectId, { is_modular: isModular });
+        const quoteVersion = (feeQuoteVersions.current.get(subjectId) ?? 0) + 1;
+        feeQuoteVersions.current.set(subjectId, quoteVersion);
+        let fees;
+        try {
+            fees = await calculateFees(subjectId, isModular);
+            if (feeQuoteVersions.current.get(subjectId) !== quoteVersion) return;
+        } catch {
+            toast.error("Could not calculate subject fees. Modular status was not changed.");
             return;
         }
-
-        const fees = calculateFees(subjectOption, isModular);
         updateSubject(subjectId, {
             is_modular: isModular,
             lecture_fee: fees.lecture_fee,
@@ -607,7 +681,7 @@ export default function AdministratorEnrollmentCreate({ user, settings, discount
         const totalLaboratory = billableSubjects.reduce((sum, s) => sum + Number(s.laboratory_fee || 0), 0);
         const modularCount = billableSubjects.filter((s) => s.is_modular).length;
         const excludedSubjectsCount = subjectsEnrolled.length - billableSubjects.length;
-        const totalModularFee = modularCount * MODULAR_FEE_PER_SUBJECT;
+        const totalModularFee = modularCount * billingConfiguration.modular_fee;
 
         const discountPercent = parseInt(discount) || 0;
         const discountedLectures = totalLectures * (1 - discountPercent / 100);
@@ -641,7 +715,7 @@ export default function AdministratorEnrollmentCreate({ user, settings, discount
             overallTotal,
             balance,
         };
-    }, [subjectsEnrolled, discount, downpayment, miscellaneousFee, additionalFees]);
+    }, [subjectsEnrolled, discount, downpayment, miscellaneousFee, additionalFees, billingConfiguration.modular_fee]);
 
     // Filter subjects based on search
     const filteredSubjects = useMemo(() => {
@@ -652,6 +726,10 @@ export default function AdministratorEnrollmentCreate({ user, settings, discount
 
     // Submit form
     const submitEnrollment = (forceOverload = false) => {
+        if (billingLoading || billingError || pendingFeeQuotes.current > 0) {
+            toast.error("Billing rules unavailable. Reload before saving.");
+            return;
+        }
         if (!selectedStudent) {
             toast.error("Please select a student");
             return;
@@ -905,7 +983,9 @@ export default function AdministratorEnrollmentCreate({ user, settings, discount
                                             )}
                                             {selectedStudent?.tesda_program_type === "diploma" && selectedStudent.internship_hours && (
                                                 <div className="text-muted-foreground mt-1 text-xs">
-                                                    {selectedStudent.duration_hours ? `${selectedStudent.duration_hours.toLocaleString()} total hours · ` : ""}
+                                                    {selectedStudent.duration_hours
+                                                        ? `${selectedStudent.duration_hours.toLocaleString()} total hours · `
+                                                        : ""}
                                                     {selectedStudent.internship_hours.toLocaleString()} mandatory OJT hours
                                                 </div>
                                             )}
@@ -928,21 +1008,30 @@ export default function AdministratorEnrollmentCreate({ user, settings, discount
                                                         <div>
                                                             <div className="font-medium">{selectedStudent.full_name}</div>
                                                             <div className="text-muted-foreground text-xs">
-                                                                {selectedStudent.course_code} | {selectedStudent.curriculum_kind === "tesda_qualification" ? "TESDA" : "College"} | {selectedStudent.formatted_academic_year}
+                                                                {selectedStudent.course_code} |{" "}
+                                                                {selectedStudent.curriculum_kind === "tesda_qualification" ? "TESDA" : "College"} |{" "}
+                                                                {selectedStudent.formatted_academic_year}
                                                             </div>
                                                             {selectedStudent.course_name && (
                                                                 <div className="text-muted-foreground mt-1 text-xs">
                                                                     {selectedStudent.course_name}
-                                                                    {selectedStudent.qualification_level ? ` · ${selectedStudent.qualification_level}` : ""}
-                                                                    {selectedStudent.tesda_program_type === "diploma" ? " · Institutional Diploma" : ""}
+                                                                    {selectedStudent.qualification_level
+                                                                        ? ` · ${selectedStudent.qualification_level}`
+                                                                        : ""}
+                                                                    {selectedStudent.tesda_program_type === "diploma"
+                                                                        ? " · Institutional Diploma"
+                                                                        : ""}
                                                                 </div>
                                                             )}
-                                                            {selectedStudent?.tesda_program_type === "diploma" && selectedStudent.internship_hours && (
-                                                                <div className="text-muted-foreground mt-1 text-xs">
-                                                                    {selectedStudent.duration_hours ? `${selectedStudent.duration_hours.toLocaleString()} total hours · ` : ""}
-                                                                    {selectedStudent.internship_hours.toLocaleString()} mandatory OJT hours
-                                                                </div>
-                                                            )}
+                                                            {selectedStudent?.tesda_program_type === "diploma" &&
+                                                                selectedStudent.internship_hours && (
+                                                                    <div className="text-muted-foreground mt-1 text-xs">
+                                                                        {selectedStudent.duration_hours
+                                                                            ? `${selectedStudent.duration_hours.toLocaleString()} total hours · `
+                                                                            : ""}
+                                                                        {selectedStudent.internship_hours.toLocaleString()} mandatory OJT hours
+                                                                    </div>
+                                                                )}
                                                         </div>
                                                     </div>
                                                 ) : (
@@ -1049,10 +1138,12 @@ export default function AdministratorEnrollmentCreate({ user, settings, discount
                                                 2
                                             </div>
                                             <div>
-                                                <CardTitle className="text-lg">{isTesdaPathway ? "Select Training Modules" : "Select Subjects"}</CardTitle>
+                                                <CardTitle className="text-lg">
+                                                    {isTesdaPathway ? "Select Training Modules" : "Select Subjects"}
+                                                </CardTitle>
                                                 <CardDescription>
-                                                    Click {isTesdaPathway ? "modules" : "subjects"} to add/remove. <Star className="inline h-3 w-3 fill-yellow-500 text-yellow-500" />{" "}
-                                                    = has classes
+                                                    Click {isTesdaPathway ? "modules" : "subjects"} to add/remove.{" "}
+                                                    <Star className="inline h-3 w-3 fill-yellow-500 text-yellow-500" /> = has classes
                                                 </CardDescription>
                                             </div>
                                         </div>

@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Enrollment\EnrollmentFeeCalculator;
+use App\Enrollment\EnrollmentFeePolicy;
 use App\Models\PaymentAllocation;
 use App\Models\Student;
 use App\Models\StudentEnrollment;
@@ -13,6 +15,8 @@ use App\Models\Transaction;
 
 final class EnrollmentBillingService
 {
+    public function __construct(private readonly EnrollmentFeeCalculator $feeCalculator = new EnrollmentFeeCalculator, private readonly EnrollmentFeePolicy $feePolicy = new EnrollmentFeePolicy) {}
+
     public function toSummaryArray(StudentTuition $tuition, float $additionalFeesTotal = 0.0): array
     {
         $totalPaid = $this->totalPaid($tuition);
@@ -230,45 +234,18 @@ final class EnrollmentBillingService
         }
 
         $enrollment->loadMissing(['subjectsEnrolled.subject.course', 'additionalFees', 'course']);
-        $course = $enrollment->course;
-        $lectureRate = (float) ($course->lec_per_unit ?? 0);
-        $laboratoryRate = (float) ($course->lab_per_unit ?? 0);
-
+        $configuration = $this->feePolicy->forEnrollment($enrollment);
         $totalLecture = 0.0;
         $totalLaboratory = 0.0;
         $totalModularFee = 0.0;
-
         foreach ($enrollment->subjectsEnrolled as $subjectEnrollment) {
-            if ($subjectEnrollment->exclude_from_tuition) {
+            if ($subjectEnrollment->exclude_from_tuition || ! $subjectEnrollment->subject) {
                 continue;
             }
-
-            $subject = $subjectEnrollment->subject;
-            if (! $subject) {
-                continue;
-            }
-
-            $subjectCourse = $subject->course ?? $course;
-            $subLecRate = (float) ($subjectCourse?->lec_per_unit ?? $lectureRate);
-            $subLabRate = (float) ($subjectCourse?->lab_per_unit ?? $laboratoryRate);
-
-            $isNSTP = str_contains(mb_strtoupper((string) $subject->code), 'NSTP');
-            $totalUnits = ((int) $subject->lecture) + ((int) $subject->laboratory);
-            $lectureFee = $subject->lecture ? $totalUnits * $subLecRate : 0.0;
-
-            if ($isNSTP) {
-                $lectureFee *= 0.5;
-            }
-
-            $laboratoryFee = $subject->laboratory ? 1.0 * $subLabRate : 0.0;
-
-            if ($subjectEnrollment->is_modular) {
-                $laboratoryFee /= 2;
-                $totalModularFee += 2400.0;
-            }
-
-            $totalLecture += (float) $lectureFee;
-            $totalLaboratory += (float) $laboratoryFee;
+            $fees = $this->feeCalculator->subject($subjectEnrollment->subject->toArray(), $configuration, (bool) $subjectEnrollment->is_modular, $subjectEnrollment->toArray());
+            $totalLecture += $fees['lecture_fee'];
+            $totalLaboratory += $fees['laboratory_fee'];
+            $totalModularFee += $fees['modular_fee'];
         }
 
         $discount = (int) $existingTuition->discount;

@@ -71,10 +71,15 @@ export type Action = { key: string; handler: string; configuration: JsonObject |
 export type Transition = { key: string; label: string; to: string; fallback: boolean; requires_reason?: boolean; conditions: Rule[] };
 
 export type BillingConfiguration = JsonObject & {
+    lecture_fee_basis?: "combined_units" | "lecture_units";
+    laboratory_fee_basis?: "flat_subject" | "lab_units";
+    nstp_code_marker?: string;
+    default_downpayment?: number;
     nstp_lecture_multiplier?: number;
     modular_laboratory_multiplier?: number;
     modular_fee?: number;
     miscellaneous_fee_fallback?: number;
+    miscellaneous_fee_override?: number | null;
     course_lecture_rate_per_unit?: number | null;
     course_laboratory_rate_per_unit?: number | null;
     course_miscellaneous_fee?: number | null;

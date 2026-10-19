@@ -75,6 +75,9 @@ final readonly class EnrollmentTransitionEngine
                 );
             }
             $actionResults = $this->executeActions($entry['actions'] ?? [], $context, $actionPayloads, $idempotencyKey);
+            if (($entry['terminal'] ?? false) === true) {
+                $this->assertCompletionRules($snapshot->configuration['rules'] ?? [], $context);
+            }
 
             EnrollmentWorkflowEvent::query()->create([
                 'student_enrollment_id' => $locked->id,

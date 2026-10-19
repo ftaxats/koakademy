@@ -8,6 +8,7 @@ use App\Contracts\Enrollment\EnrollmentOperatorSchemaProvider;
 use App\Contracts\Enrollment\RuntimeEnrollmentBillingStrategy;
 use App\Data\Enrollment\ActionResult;
 use App\Data\Enrollment\EnrollmentContext;
+use App\Enrollment\EnrollmentFeeCalculator;
 use App\Enrollment\EnrollmentTuitionService;
 
 final readonly class ConfiguredBillingStrategy implements EnrollmentOperatorSchemaProvider, RuntimeEnrollmentBillingStrategy
@@ -34,34 +35,70 @@ final readonly class ConfiguredBillingStrategy implements EnrollmentOperatorSche
             'description' => 'Use the program lecture, laboratory, miscellaneous fee, and existing discount rules.',
             'fields' => [
                 [
+                    'key' => 'lecture_fee_basis', 'label' => 'Lecture fee basis', 'control' => 'select',
+                    'default' => 'combined_units',
+                    'description' => 'Combined units preserves the existing formula. Saved fee overrides are not repriced.',
+                    'options' => [
+                        ['value' => 'combined_units', 'label' => 'Lecture plus laboratory units'],
+                        ['value' => 'lecture_units', 'label' => 'Lecture units only'],
+                    ],
+                ],
+                [
+                    'key' => 'laboratory_fee_basis', 'label' => 'Laboratory fee basis', 'control' => 'select',
+                    'default' => 'flat_subject',
+                    'options' => [
+                        ['value' => 'flat_subject', 'label' => 'One charge per subject with a laboratory'],
+                        ['value' => 'lab_units', 'label' => 'Rate multiplied by laboratory units'],
+                    ],
+                ],
+                [
+                    'key' => 'nstp_code_marker', 'label' => 'Reduced-lecture subject code marker', 'control' => 'text',
+                    'default' => 'NSTP',
+                    'description' => 'Case-insensitive code fragment receiving the lecture multiplier. Empty disables code matching. Use a registered billing strategy for category-based rules.',
+                ],
+                [
+                    'key' => 'default_downpayment', 'label' => 'Default expected downpayment', 'control' => 'money',
+                    'minimum' => 0, 'default' => EnrollmentFeeCalculator::Defaults['default_downpayment'],
+                    'description' => 'Suggested amount for a new enrollment, not a recorded payment or a minimum-payment gate. Staff may override it; zero is allowed.',
+                ],
+                [
                     'key' => 'nstp_lecture_multiplier',
+                    'step' => 0.01,
                     'label' => 'NSTP lecture multiplier',
                     'control' => 'number',
                     'minimum' => 0,
                     'maximum' => 1,
-                    'default' => 0.5,
+                    'default' => EnrollmentFeeCalculator::Defaults['nstp_lecture_multiplier'],
                 ],
                 [
                     'key' => 'modular_laboratory_multiplier',
                     'label' => 'Modular laboratory multiplier',
+                    'description' => '1 keeps the full laboratory fee; 0.5 charges half; 0 waives it. Applied once when calculating a subject fee. Saved fee overrides are final amounts.',
+                    'step' => 0.01,
                     'control' => 'number',
                     'minimum' => 0,
                     'maximum' => 1,
-                    'default' => 0.5,
+                    'default' => EnrollmentFeeCalculator::Defaults['modular_laboratory_multiplier'],
                 ],
                 [
                     'key' => 'modular_fee',
                     'label' => 'Fee per modular subject',
+                    'description' => 'Added separately to lecture and laboratory charges. Set to 0 to disable. Publishing changes affects new policy enrollments, not existing snapshots.',
                     'control' => 'money',
                     'minimum' => 0,
-                    'default' => 2400,
+                    'default' => EnrollmentFeeCalculator::Defaults['modular_fee'],
+                ],
+                [
+                    'key' => 'miscellaneous_fee_override', 'label' => 'Policy miscellaneous fee override', 'control' => 'money',
+                    'minimum' => 0,
+                    'description' => 'Leave blank to use program/curriculum fees. Enter zero to waive the fee. Snapshot pins this amount for new policy enrollments; staff assessment overrides remain explicit.',
                 ],
                 [
                     'key' => 'miscellaneous_fee_fallback',
                     'label' => 'Miscellaneous fee fallback',
                     'control' => 'money',
                     'minimum' => 0,
-                    'default' => 3500,
+                    'default' => EnrollmentFeeCalculator::Defaults['miscellaneous_fee_fallback'],
                 ],
                 [
                     'key' => 'receipt_mode',

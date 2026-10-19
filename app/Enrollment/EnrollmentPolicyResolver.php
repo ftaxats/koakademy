@@ -16,7 +16,7 @@ use Illuminate\Validation\ValidationException;
 
 final readonly class EnrollmentPolicyResolver
 {
-    private const int CompilerRevision = 3;
+    private const int CompilerRevision = 5;
 
     public function __construct(private EnrollmentPolicyCompiler $compiler) {}
 
@@ -97,7 +97,7 @@ final readonly class EnrollmentPolicyResolver
 
         data_set($configuration, 'billing.configuration.course_lecture_rate_per_unit', (float) ($course->lec_per_unit ?? 0));
         data_set($configuration, 'billing.configuration.course_laboratory_rate_per_unit', (float) ($course->lab_per_unit ?? 0));
-        data_set($configuration, 'billing.configuration.course_miscellaneous_fee', (float) $course->getMiscellaneousFee());
+        data_set($configuration, 'billing.configuration.course_miscellaneous_fee', (float) (data_get($configuration, 'billing.configuration.miscellaneous_fee_override') ?? $course->getMiscellaneousFee()));
 
         return $configuration;
     }

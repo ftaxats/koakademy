@@ -38,6 +38,8 @@ final readonly class LegacyEnrollmentWorkflowAdapter
     public function __construct(
         private EnrollmentBillingService $billingService,
         private FinancialDocumentService $financialDocuments,
+        private EnrollmentFeeCalculator $feeCalculator,
+        private EnrollmentFeePolicy $feePolicy,
     ) {}
 
     /**
@@ -120,44 +122,17 @@ final readonly class LegacyEnrollmentWorkflowAdapter
                         continue; // Skip if subject or course data is missing
                     }
 
-                    // Use fees from form if manually entered, otherwise calculate
-                    $lectureFee = $subjectEnrolled['lecture'] ?? 0;
-                    $laboratoryFee = $subjectEnrolled['laboratory'] ?? 0;
-
-                    // If fees were not manually entered (or are zero), calculate them
-                    // Note: This calculation logic might differ slightly from the form's live calculation
-                    // Ensure consistency or rely solely on form-provided fees if they are always present.
-                    if (empty($lectureFee) && empty($laboratoryFee)) {
-                        $isNSTP = str_contains(
-                            mb_strtoupper((string) $subjectModel->code),
-                            'NSTP'
-                        );
-                        $totalUnits =
-                            $subjectModel->lecture + $subjectModel->laboratory;
-                        $courseLecPerUnit =
-                            $subjectModel->course->lec_per_unit ?? 0;
-                        $calculatedLectureFee = $subjectModel->lecture
-                            ? $totalUnits * $courseLecPerUnit
-                            : 0;
-
-                        if ($isNSTP) {
-                            $calculatedLectureFee *= 0.5;
+                    // Inertia uses *_fee; older Filament forms use lecture/laboratory.
+                    $assessedFees = $subjectEnrolled;
+                    foreach (['lecture_fee' => 'lecture', 'laboratory_fee' => 'laboratory'] as $key => $legacyKey) {
+                        if (! array_key_exists($key, $assessedFees) && array_key_exists($legacyKey, $assessedFees)) {
+                            $assessedFees[$key] = $assessedFees[$legacyKey];
                         }
-
-                        $courseLabPerUnit =
-                            $subjectModel->course->lab_per_unit ?? 0;
-                        $calculatedLaboratoryFee = $subjectModel->laboratory
-                            ? 1 * $courseLabPerUnit
-                            : 0; // Lab fee is always 1 × lab_per_unit if any lab units exist
-
-                        $lectureFee = $calculatedLectureFee;
-                        $laboratoryFee = $calculatedLaboratoryFee;
                     }
-
-                    if (! empty($subjectEnrolled['is_modular'])) {
-                        $laboratoryFee = (float) $laboratoryFee / 2;
-                        $totalModularFee += 2400;
-                    }
+                    $fees = $this->feeCalculator->subject($subjectModel->toArray(), $this->feePolicy->forEnrollment($studentEnrollment), (bool) ($subjectEnrolled['is_modular'] ?? false), $assessedFees);
+                    $lectureFee = $fees['lecture_fee'];
+                    $laboratoryFee = $fees['laboratory_fee'];
+                    $totalModularFee += $fees['modular_fee'];
 
                     $totalLecture += (float) $lectureFee;
                     $totalLaboratory += (float) $laboratoryFee;
@@ -208,7 +183,7 @@ final readonly class LegacyEnrollmentWorkflowAdapter
                 'overall_tuition' => $overallTotal,
                 // Add other relevant fields if needed (semester, school_year, etc.)
                 'semester' => $studentEnrollment->semester, // Assuming semester is on enrollment record
-                'school_year' => GeneralSetting::query()->first()?->getSchoolYearString(), // Fetch current school year
+                'school_year' => $studentEnrollment->school_year,
                 'academic_year' => $studentEnrollment->academic_year, // Assuming academic_year is on enrollment record
             ]);
 

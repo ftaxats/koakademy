@@ -4,8 +4,12 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers;
 
+use App\Data\Enrollment\EnrollmentContext;
 use App\Data\Enrollment\EnrollmentSubmissionData;
 use App\Enrollment\EnrollmentCancellationService;
+use App\Enrollment\EnrollmentFeeCalculator;
+use App\Enrollment\EnrollmentFeePolicy;
+use App\Enrollment\EnrollmentPolicyResolver;
 use App\Enrollment\EnrollmentTransitionEngine;
 use App\Enrollment\EnrollmentWorkflowCoordinator;
 use App\Enums\StudentStatus;
@@ -76,6 +80,8 @@ final class AdministratorEnrollmentManagementController extends Controller
         private readonly TuitionAdjustmentRecalculationService $tuitionAdjustmentRecalculation,
         private readonly EnrollmentTransitionEngine $transitionEngine,
         private readonly EnrollmentCancellationService $enrollmentCancellationService,
+        private readonly EnrollmentFeeCalculator $feeCalculator,
+        private readonly EnrollmentFeePolicy $feePolicy,
     ) {}
 
     public function index(GeneralSettingsService $settingsService): Response|RedirectResponse
@@ -1249,6 +1255,7 @@ final class AdministratorEnrollmentManagementController extends Controller
                     '4' => '4th Year',
                 ],
             ],
+            'billingConfiguration' => $this->feePolicy->forEnrollment($enrollment),
             'enrollment' => [
                 'id' => $enrollment->id,
                 'semester' => $enrollment->semester,
@@ -1507,6 +1514,7 @@ final class AdministratorEnrollmentManagementController extends Controller
                     '4' => '4th Year',
                 ],
             ],
+            'billingConfiguration' => EnrollmentFeeCalculator::Defaults,
             'discounts' => $this->discountOptions(),
             'flash' => session('flash'),
         ]);
@@ -1873,8 +1881,16 @@ final class AdministratorEnrollmentManagementController extends Controller
      *
      * @return JsonResponse
      */
-    public function calculateSubjectFees(Request $request)
+    public function calculateSubjectFees(Request $request, EnrollmentPolicyResolver $resolver, GeneralSettingsService $settingsService)
     {
+        $request->validate([
+            'subject_id' => ['required', 'integer'],
+            'enrollment_id' => ['nullable', 'integer'],
+            'student_id' => ['nullable', 'integer'],
+            'is_modular' => ['sometimes', 'boolean'],
+            'semester' => ['sometimes', 'integer', 'in:1,2'],
+            'school_year' => ['sometimes', 'string', 'max:50'],
+        ]);
         $subjectId = $request->input('subject_id');
         $isModular = $request->boolean('is_modular', false);
 
@@ -1887,22 +1903,17 @@ final class AdministratorEnrollmentManagementController extends Controller
             return response()->json(['error' => 'Subject not found'], 404);
         }
 
-        $isNSTP = str_contains(mb_strtoupper((string) $subject->code), 'NSTP');
-        $totalUnits = $subject->lecture + $subject->laboratory;
-        $courseLecPerUnit = $subject->course?->lec_per_unit ?? 0;
-        $courseLabPerUnit = $subject->course?->lab_per_unit ?? 0;
-
-        // Calculate lecture fee
-        $lectureFee = $subject->lecture ? $totalUnits * $courseLecPerUnit : 0;
-        if ($isNSTP) {
-            $lectureFee *= 0.5;
+        $configuration = [
+            ...EnrollmentFeeCalculator::Defaults,
+            'course_lecture_rate_per_unit' => (float) ($subject->course?->lec_per_unit ?? 0),
+            'course_laboratory_rate_per_unit' => (float) ($subject->course?->lab_per_unit ?? 0),
+        ];
+        if ($request->filled('enrollment_id')) {
+            $configuration = $this->feePolicy->forEnrollment(StudentEnrollment::query()->findOrFail($request->integer('enrollment_id')));
+        } elseif ($request->filled('student_id')) {
+            $configuration = $this->studentFeeConfiguration(Student::query()->findOrFail($request->integer('student_id')), $request, $resolver, $settingsService);
         }
-
-        // Calculate laboratory fee
-        $laboratoryFee = $subject->laboratory ? 1 * $courseLabPerUnit : 0;
-        if ($isModular && $subject->laboratory) {
-            $laboratoryFee /= 2;
-        }
+        $fees = $this->feeCalculator->subject($subject->toArray(), $configuration, $isModular);
 
         return response()->json([
             'subject_id' => $subject->id,
@@ -1910,11 +1921,12 @@ final class AdministratorEnrollmentManagementController extends Controller
             'title' => $subject->title,
             'lecture_units' => $subject->lecture,
             'laboratory_units' => $subject->laboratory,
-            'lecture_fee' => round($lectureFee, 2),
-            'laboratory_fee' => round($laboratoryFee, 2),
-            'is_nstp' => $isNSTP,
+            'lecture_fee' => $fees['lecture_fee'],
+            'laboratory_fee' => $fees['laboratory_fee'],
+            'is_nstp' => ($marker = mb_strtoupper(mb_trim((string) ($configuration['nstp_code_marker'] ?? 'NSTP')))) !== ''
+                && str_contains(mb_strtoupper((string) $subject->code), $marker),
             'is_modular' => $isModular,
-            'modular_fee' => $isModular ? 2400 : 0,
+            'modular_fee' => $fees['modular_fee'],
         ]);
     }
 
@@ -1923,7 +1935,7 @@ final class AdministratorEnrollmentManagementController extends Controller
      *
      * @return JsonResponse
      */
-    public function getStudentDetails(Request $request, CurriculumCapabilityResolver $capabilityResolver)
+    public function getStudentDetails(Request $request, CurriculumCapabilityResolver $capabilityResolver, EnrollmentPolicyResolver $resolver, GeneralSettingsService $settingsService)
     {
         $studentId = $request->input('student_id');
 
@@ -1936,7 +1948,10 @@ final class AdministratorEnrollmentManagementController extends Controller
             return response()->json(['error' => 'Student not found'], 404);
         }
 
+        $feeConfiguration = $this->studentFeeConfiguration($student, $request, $resolver, $settingsService);
+
         return response()->json([
+            'billing_configuration' => $feeConfiguration,
             'id' => $student->id,
             'student_id' => $student->student_id,
             'full_name' => $student->full_name,
@@ -1953,7 +1968,7 @@ final class AdministratorEnrollmentManagementController extends Controller
             'bundled_qualifications' => $student->Course?->bundled_qualifications,
             'academic_year' => $student->academic_year,
             'formatted_academic_year' => $student->formatted_academic_year,
-            'miscellaneous_fee' => $student->Course?->getMiscellaneousFee() ?? 3500,
+            'miscellaneous_fee' => $feeConfiguration['miscellaneous_fee_override'] ?? $student->Course?->getMiscellaneousFee() ?? EnrollmentFeeCalculator::Defaults['miscellaneous_fee_fallback'],
         ]);
     }
 
@@ -2385,6 +2400,28 @@ final class AdministratorEnrollmentManagementController extends Controller
             ->values();
 
         return response()->json(['courses' => $courses]);
+    }
+
+    /** @return array<string, mixed> */
+    private function studentFeeConfiguration(Student $student, Request $request, EnrollmentPolicyResolver $resolver, GeneralSettingsService $settingsService): array
+    {
+        $feeConfiguration = EnrollmentFeeCalculator::Defaults;
+        if (Feature::active(DynamicEnrollmentPolicies::class)) {
+            $context = new EnrollmentContext(
+                schoolId: $student->school_id,
+                studentType: $student->student_type?->value,
+                courseId: $student->course_id,
+                schoolYear: (string) $request->input('school_year', $settingsService->getCurrentSchoolYearString()),
+                semester: (int) $request->input('semester', $settingsService->getCurrentSemester()),
+                yearLevel: $student->academic_year,
+            );
+            $feeConfiguration = data_get($resolver->resolve($context)->configuration, 'billing.configuration', []);
+        }
+        $feeConfiguration = array_filter($feeConfiguration, static fn (mixed $value): bool => $value !== null);
+        $feeConfiguration['course_lecture_rate_per_unit'] = (float) ($student->Course?->lec_per_unit ?? 0);
+        $feeConfiguration['course_laboratory_rate_per_unit'] = (float) ($student->Course?->lab_per_unit ?? 0);
+
+        return $feeConfiguration;
     }
 
     private function resolveEnrollmentReportVariant(string $variant): string
@@ -2997,47 +3034,20 @@ final class AdministratorEnrollmentManagementController extends Controller
         float $downpayment,
         array $additionalFees
     ): void {
-        $subjectIds = collect($subjects)
-            ->pluck('subject_id')
-            ->filter()
-            ->unique();
-
-        $subjectModels = Subject::with('course')
-            ->findMany($subjectIds)
-            ->keyBy('id');
-
+        $configuration = $this->feePolicy->forEnrollment($enrollment);
+        $subjectModels = Subject::query()->findMany(collect($subjects)->pluck('subject_id'))->keyBy('id');
         $totalLecture = 0.0;
         $totalLaboratory = 0.0;
         $totalModularFee = 0.0;
-
         foreach ($subjects as $subjectData) {
-            $subject = $subjectModels->get($subjectData['subject_id'] ?? 0);
-            if (! $subject) {
+            $subject = $subjectModels->get($subjectData['subject_id']);
+            if (! $subject || ($subjectData['exclude_from_tuition'] ?? false)) {
                 continue;
             }
-
-            if ((bool) ($subjectData['exclude_from_tuition'] ?? false)) {
-                continue;
-            }
-
-            $isModular = (bool) ($subjectData['is_modular'] ?? false);
-            $isNSTP = str_contains(mb_strtoupper((string) $subject->code), 'NSTP');
-            $totalUnits = ($subject->lecture ?? 0) + ($subject->laboratory ?? 0);
-            $lectureFee = $subject->lecture ? $totalUnits * ($subject->course?->lec_per_unit ?? 0) : 0;
-
-            if ($isNSTP) {
-                $lectureFee *= 0.5;
-            }
-
-            $laboratoryFee = $subject->laboratory ? 1 * ($subject->course?->lab_per_unit ?? 0) : 0;
-
-            if ($isModular) {
-                $laboratoryFee /= 2;
-                $totalModularFee += 2400;
-            }
-
-            $totalLecture += (float) $lectureFee;
-            $totalLaboratory += (float) $laboratoryFee;
+            $fees = $this->feeCalculator->subject($subject->toArray(), $configuration, (bool) ($subjectData['is_modular'] ?? false), $subjectData);
+            $totalLecture += $fees['lecture_fee'];
+            $totalLaboratory += $fees['laboratory_fee'];
+            $totalModularFee += $fees['modular_fee'];
         }
 
         $discountedLecture = $totalLecture * (1 - $discount / 100);

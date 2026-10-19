@@ -139,3 +139,25 @@ it('publishes rich operator metadata and validates conditional fields only when 
     expect(fn () => $compiler->compile([['version_id' => 1, 'configuration' => $visibleValue]]))
         ->toThrow(ValidationException::class, 'required');
 });
+
+it('rejects invalid dynamic billing settings before publication', function (string $key, mixed $value): void {
+    $configuration = EnrollmentPolicyPreset::standard();
+    $configuration['billing']['configuration'][$key] = $value;
+
+    expect(fn () => app(EnrollmentPolicyCompiler::class)->compile([['version_id' => 1, 'configuration' => $configuration]]))
+        ->toThrow(ValidationException::class);
+})->with([
+    'unknown lecture basis' => ['lecture_fee_basis', 'arbitrary_formula'],
+    'unknown lab basis' => ['laboratory_fee_basis', 'script'],
+    'negative downpayment' => ['default_downpayment', -1],
+    'negative miscellaneous' => ['miscellaneous_fee_override', -1],
+]);
+
+it('treats a cleared miscellaneous override as program pricing rather than a waiver', function (): void {
+    $configuration = EnrollmentPolicyPreset::standard();
+    $configuration['billing']['configuration']['miscellaneous_fee_override'] = '';
+
+    $compiled = app(EnrollmentPolicyCompiler::class)->compile([['version_id' => 1, 'configuration' => $configuration]]);
+
+    expect($compiled->configuration['billing']['configuration']['miscellaneous_fee_override'])->toBeNull();
+});

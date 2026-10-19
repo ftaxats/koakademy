@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Filament\Resources\StudentEnrollments\Schemas;
 
+use App\Enrollment\EnrollmentFormPricing;
 use App\Enums\StudentStatus;
 use App\Enums\StudentType;
 use App\Models\Classes;
@@ -312,21 +313,12 @@ final class StudentEnrollmentForm
                                     $student->academic_year ?? ''
                                 );
 
-                                // Update miscellaneous fee based on student's course
-                                if ($student->course_id) {
-                                    $course = Course::query()->find($student->course_id);
-                                    $miscellaneousFee =
-                                        $course?->getMiscellaneousFee() ?? 3500;
-                                    $set('miscellaneous', $miscellaneousFee);
-
-                                    // Recalculate totals
-                                    $totalTuition =
-                                        (float) ($get('Total_Tuition') ?? 0);
-                                    $overallTotal =
-                                        $totalTuition + $miscellaneousFee;
-                                    $set('overall_total', $overallTotal);
-                                    $set('total_balance', $overallTotal);
-                                }
+                                $configuration = app(EnrollmentFormPricing::class)->configuration(['student_id' => $student->id, 'academic_year' => $student->academic_year]);
+                                $set('miscellaneous', $configuration['course_miscellaneous_fee']);
+                                $set('downpayment', $configuration['default_downpayment']);
+                                $totalTuition = (float) ($get('Total_Tuition') ?? 0);
+                                $set('overall_total', $totalTuition + $configuration['course_miscellaneous_fee']);
+                                $set('total_balance', $totalTuition + $configuration['course_miscellaneous_fee']);
 
                                 // Removed picture_1x1 logic as it's not in the main form state
                             } else {
@@ -631,8 +623,8 @@ final class StudentEnrollmentForm
                     ): array {
                         $data['academic_year'] =
                             $livewire->data['academic_year'];
-                        $data['school_year'] = self::getCurrentSchoolYear();
-                        $data['semester'] = self::getCurrentSemester();
+                        $data['school_year'] = $livewire->data['school_year'] ?? self::getCurrentSchoolYear();
+                        $data['semester'] = $livewire->data['semester'] ?? self::getCurrentSemester();
                         $data['student_id'] = $livewire->data['student_id'];
 
                         // Ensure enrolled units are saved
@@ -650,46 +642,15 @@ final class StudentEnrollmentForm
                             }
                         }
 
-                        if (
-                            empty($data['lecture_fee']) ||
-                            empty($data['laboratory_fee'])
-                        ) {
-                            $subject = Subject::with('course')->find(
-                                $data['subject_id']
-                            );
-                            if ($subject) {
-                                $isNSTP = str_contains(
-                                    mb_strtoupper((string) $subject->code),
-                                    'NSTP'
-                                );
-                                $isModular = ! empty($data['is_modular']);
-                                $totalUnits =
-                                    $subject->lecture + $subject->laboratory;
-                                $courseLecPerUnit =
-                                    $subject->course?->lec_per_unit ?? 0;
-                                // Calculate lecture fee WITHOUT modular addition (modular is separate)
-                                $lectureFee = $subject->lecture
-                                    ? $totalUnits * $courseLecPerUnit
-                                    : 0;
-                                if ($isNSTP) {
-                                    $lectureFee *= 0.5;
-                                }
-
-                                $courseLabPerUnit =
-                                    $subject->course?->lab_per_unit ?? 0;
-                                $laboratoryFee = $subject->laboratory
-                                    ? 1 * $courseLabPerUnit
-                                    : 0;
-                                // Divide lab fee by 2 for modular subjects
-                                if ($isModular && $subject->laboratory) {
-                                    $laboratoryFee /= 2;
-                                }
-
-                                $data['lecture_fee'] =
-                                    $data['lecture'] ?? $lectureFee;
-                                $data['laboratory_fee'] =
-                                    $data['laboratory'] ?? $laboratoryFee;
-                            }
+                        $subject = Subject::with('course')->find($data['subject_id']);
+                        if ($subject) {
+                            $overrides = [
+                                'lecture_fee' => $data['lecture'] ?? $data['lecture_fee'] ?? null,
+                                'laboratory_fee' => $data['laboratory'] ?? $data['laboratory_fee'] ?? null,
+                            ];
+                            $fees = app(EnrollmentFormPricing::class)->subject($subject, (bool) ($data['is_modular'] ?? false), $livewire->data, self::enrollmentRecord(method_exists($livewire, 'getRecord') ? $livewire->getRecord() : null), $overrides);
+                            $data['lecture_fee'] = $fees['lecture_fee'];
+                            $data['laboratory_fee'] = $fees['laboratory_fee'];
                         }
 
                         // Remove temporary fields that shouldn't be saved to the database
@@ -971,36 +932,9 @@ final class StudentEnrollmentForm
                                         $set('enrolled_lecture_units', $subject->lecture ?: 0);
                                         $set('enrolled_laboratory_units', $subject->laboratory ?: 0);
 
-                                        // Calculate fees
-                                        $isNSTP = str_contains(
-                                            mb_strtoupper((string) $subject->code),
-                                            'NSTP'
-                                        );
-                                        $totalUnits =
-                                            $subject->lecture +
-                                            $subject->laboratory;
-                                        $courseLecPerUnit =
-                                            $subject->course?->lec_per_unit ??
-                                            0;
-                                        $lectureFee = $subject->lecture
-                                            ? $totalUnits * $courseLecPerUnit
-                                            : 0;
-                                        if ($isNSTP) {
-                                            $lectureFee *= 0.5;
-                                        }
-
-                                        $set('lecture', $lectureFee ?: '0');
-
-                                        $courseLabPerUnit =
-                                            $subject->course?->lab_per_unit ??
-                                            0;
-                                        $laboratoryFee = $subject->laboratory
-                                            ? 1 * $courseLabPerUnit
-                                            : 0;
-                                        $set(
-                                            'laboratory',
-                                            $laboratoryFee ?: '0'
-                                        );
+                                        $fees = app(EnrollmentFormPricing::class)->subject($subject, (bool) $get('is_modular'), self::pricingState($get), self::enrollmentRecord($record));
+                                        $set('lecture', $fees['lecture_fee']);
+                                        $set('laboratory', $fees['laboratory_fee']);
 
                                         // Get available sections for this subject and course in the correct academic period
                                         $schoolYear = self::getCurrentSchoolYear();
@@ -1111,48 +1045,11 @@ final class StudentEnrollmentForm
                                         $subjectId
                                     );
                                     if ($subject) {
-                                        // Calculate the base lecture fee (WITHOUT modular addition)
-                                        $totalUnits =
-                                            $subject->lecture +
-                                            $subject->laboratory;
-                                        $courseLecPerUnit =
-                                            $subject->course
-                                                ?->lec_per_unit ?? 0;
-                                        $lectureFee = $subject->lecture
-                                            ? $totalUnits *
-                                            $courseLecPerUnit
-                                            : 0;
-                                        $isNSTP = str_contains(
-                                            mb_strtoupper((string) $subject->code),
-                                            'NSTP'
-                                        );
-                                        if ($isNSTP) {
-                                            $lectureFee *= 0.5;
-                                        }
-
-                                        $courseLabPerUnit =
-                                            $subject->course
-                                                ?->lab_per_unit ?? 0;
-                                        $laboratoryFee = $subject->laboratory
-                                            ? 1 * $courseLabPerUnit
-                                            : 0;
-
-                                        if ($get('is_modular')) {
-                                            // For modular: lecture fee stays the same (no +2400), divide lab fee by 2
-                                            // The 2400 modular fee is calculated separately in the totals
-                                            $set('lecture', $lectureFee ?: '0');
-                                            // Divide lab fee by 2 for modular subjects
-                                            $modularLabFee = $subject->laboratory ? ($laboratoryFee / 2) : 0;
-                                            $set('laboratory', $modularLabFee);
-                                            $set('enrolled_lecture_units', $subject->lecture ?: 0);
-                                            $set('enrolled_laboratory_units', $subject->laboratory ?: 0);
-                                        } else {
-                                            // Reset to default fees
-                                            $set('enrolled_lecture_units', $subject->lecture ?: 0);
-                                            $set('enrolled_laboratory_units', $subject->laboratory ?: 0);
-                                            $set('lecture', $lectureFee ?: '0');
-                                            $set('laboratory', $laboratoryFee ?: '0');
-                                        }
+                                        $fees = app(EnrollmentFormPricing::class)->subject($subject, (bool) $get('is_modular'), self::pricingState($get), self::enrollmentRecord($record));
+                                        $set('lecture', $fees['lecture_fee']);
+                                        $set('laboratory', $fees['laboratory_fee']);
+                                        $set('enrolled_lecture_units', $subject->lecture ?: 0);
+                                        $set('enrolled_laboratory_units', $subject->laboratory ?: 0);
                                     }
                                 }
 
@@ -1184,20 +1081,11 @@ final class StudentEnrollmentForm
                                 if ($subjectId) {
                                     $subject = Subject::with('course')->find($subjectId);
                                     if ($subject && $subject->course) {
-                                        // Calculate lecture fee based on enrolled units
-                                        $courseLecPerUnit = $subject->course->lec_per_unit ?? 0;
-                                        $lectureFee = (int) $state * $courseLecPerUnit;
-
-                                        // Apply NSTP discount if applicable
-                                        $isNSTP = str_contains(
-                                            mb_strtoupper((string) $subject->code),
-                                            'NSTP'
-                                        );
-                                        if ($isNSTP) {
-                                            $lectureFee *= 0.5;
-                                        }
-
-                                        $set('lecture', $lectureFee ?: '0');
+                                        $subject->lecture = (int) $state;
+                                        $subject->laboratory = (int) $get('enrolled_laboratory_units');
+                                        $fees = app(EnrollmentFormPricing::class)->subject($subject, (bool) $get('is_modular'), self::pricingState($get), self::enrollmentRecord($record));
+                                        $set('lecture', $fees['lecture_fee']);
+                                        $set('laboratory', $fees['laboratory_fee']);
 
                                         // Update totals
                                         EnrollmentServiceProvider::updateTotals(
@@ -1225,11 +1113,11 @@ final class StudentEnrollmentForm
                                 if ($subjectId) {
                                     $subject = Subject::with('course')->find($subjectId);
                                     if ($subject && $subject->course) {
-                                        // Calculate laboratory fee (always 1 × lab_per_unit if any lab units)
-                                        $courseLabPerUnit = $subject->course->lab_per_unit ?? 0;
-                                        $laboratoryFee = (int) $state > 0 ? 1 * $courseLabPerUnit : 0;
-
-                                        $set('laboratory', $laboratoryFee ?: '0');
+                                        $subject->lecture = (int) $get('enrolled_lecture_units');
+                                        $subject->laboratory = (int) $state;
+                                        $fees = app(EnrollmentFormPricing::class)->subject($subject, (bool) $get('is_modular'), self::pricingState($get), self::enrollmentRecord($record));
+                                        $set('lecture', $fees['lecture_fee']);
+                                        $set('laboratory', $fees['laboratory_fee']);
 
                                         // Update totals
                                         EnrollmentServiceProvider::updateTotals(
@@ -1565,37 +1453,9 @@ final class StudentEnrollmentForm
                                     } else {
                                         $subjectModel =
                                             $subjectEnrollment->subject;
-                                        $isNSTP = str_contains(
-                                            mb_strtoupper(
-                                                (string) $subjectModel->code
-                                            ),
-                                            'NSTP'
-                                        );
-                                        $isModular = $subjectEnrollment->is_modular ?? false;
-                                        $totalUnits =
-                                            $subjectModel->lecture +
-                                            $subjectModel->laboratory;
-                                        $courseLecPerUnit =
-                                            $subjectModel->course
-                                                ?->lec_per_unit ?? 0;
-                                        // Calculate lecture fee WITHOUT modular addition (modular is separate)
-                                        $lectureFee = $subjectModel->lecture
-                                            ? $totalUnits * $courseLecPerUnit
-                                            : 0;
-                                        if ($isNSTP) {
-                                            $lectureFee *= 0.5;
-                                        }
-
-                                        $courseLabPerUnit =
-                                            $subjectModel->course
-                                                ?->lab_per_unit ?? 0;
-                                        $laboratoryFee = $subjectModel->laboratory
-                                            ? 1 * $courseLabPerUnit
-                                            : 0;
-                                        // Divide lab fee by 2 for modular subjects
-                                        if ($isModular && $subjectModel->laboratory) {
-                                            $laboratoryFee /= 2;
-                                        }
+                                        $fees = app(EnrollmentFormPricing::class)->subject($subjectModel, (bool) $subjectEnrollment->is_modular, self::pricingState($get), self::enrollmentRecord($record), $subjectEnrollment->toArray());
+                                        $lectureFee = $fees['lecture_fee'];
+                                        $laboratoryFee = $fees['laboratory_fee'];
 
                                         $set(
                                             'subjectsEnrolled.'.
@@ -1609,10 +1469,7 @@ final class StudentEnrollmentForm
                                                 '.laboratory',
                                             $laboratoryFee
                                         );
-                                        $subjectEnrollment->update([
-                                            'lecture_fee' => $lectureFee,
-                                            'laboratory_fee' => $laboratoryFee,
-                                        ]);
+
                                     }
 
                                     $set(
@@ -2157,15 +2014,7 @@ final class StudentEnrollmentForm
                                         ->total_miscelaneous_fees;
                                 }
 
-                                // For new records, get from course or default
-                                $courseId = $get('course_id');
-                                if ($courseId) {
-                                    $course = Course::query()->find($courseId);
-
-                                    return $course?->miscelaneous ?? 3500;
-                                }
-
-                                return 3500; // Final fallback
+                                return app(EnrollmentFormPricing::class)->configuration(self::pricingState($get), self::enrollmentRecord($record))['course_miscellaneous_fee'];
                             })
                             ->afterStateUpdated(function (
                                 Get $get,
@@ -2355,8 +2204,8 @@ final class StudentEnrollmentForm
                             ->numeric()
                             ->prefix('₱')
                             ->live(onBlur: true)
-                            ->minValue(500)
-                            ->default(3500)
+                            ->minValue(0)
+                            ->default(fn (Get $get, $record) => app(EnrollmentFormPricing::class)->configuration(self::pricingState($get), self::enrollmentRecord($record))['default_downpayment'])
                             ->afterStateUpdated(function (
                                 Get $get,
                                 Set $set
@@ -2381,6 +2230,22 @@ final class StudentEnrollmentForm
                     ->columnSpanFull(),
             ])
             ->columns(3);
+    }
+
+    /** @return array<string, mixed> */
+    private static function pricingState(Get $get): array
+    {
+        return [
+            'student_id' => $get('../../student_id') ?? $get('student_id'),
+            'school_year' => $get('../../school_year') ?? $get('school_year'),
+            'semester' => $get('../../semester') ?? $get('semester'),
+            'academic_year' => $get('../../academic_year') ?? $get('academic_year'),
+        ];
+    }
+
+    private static function enrollmentRecord(mixed $record): ?StudentEnrollment
+    {
+        return $record instanceof StudentEnrollment ? $record : ($record instanceof SubjectEnrollment ? $record->enrollment : null);
     }
 
     private static function getCurrentSchoolYear(): string

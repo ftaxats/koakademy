@@ -19,10 +19,14 @@ use App\Enrollment\EnrollmentTransitionEngine;
 use App\Enrollment\EnrollmentTuitionService;
 use App\Enrollment\EnrollmentWorkflowCoordinator;
 use App\Enrollment\Rules\ConfiguredEnrollmentRuleHandler;
+use App\Enrollment\Rules\EnrollmentPrerequisiteRule;
+use App\Enrollment\Rules\EnrollmentRecordLimitRule;
+use App\Enrollment\Rules\EnrollmentScheduleRule;
 use App\Enrollment\Strategies\ConfiguredAssignmentStrategy;
 use App\Enrollment\Strategies\ConfiguredBillingStrategy;
 use App\Models\StudentEnrollment;
 use App\Observers\StudentEnrollmentPolicyObserver;
+use App\Services\EnrollmentBillingService;
 use Illuminate\Support\ServiceProvider;
 
 final class EnrollmentPolicyServiceProvider extends ServiceProvider
@@ -39,6 +43,11 @@ final class EnrollmentPolicyServiceProvider extends ServiceProvider
             foreach ($this->ruleCatalog() as $key => [$label, $category]) {
                 $registry->registerRule(new ConfiguredEnrollmentRuleHandler($key, $label, $category));
             }
+            foreach (['academics.maximum_assigned_units', 'billing.maximum_other_assessment_balance'] as $key) {
+                $registry->registerRule(new EnrollmentRecordLimitRule($key, $this->app->make(EnrollmentBillingService::class)));
+            }
+            $registry->registerRule(new EnrollmentScheduleRule);
+            $registry->registerRule($this->app->make(EnrollmentPrerequisiteRule::class));
             foreach ($this->stateActionCatalog() as $key => $label) {
                 $registry->registerAction(new EnrollmentStateActionHandler($key, $label, $studentSynchronization));
             }

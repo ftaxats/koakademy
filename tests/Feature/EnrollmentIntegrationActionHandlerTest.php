@@ -341,8 +341,63 @@ it('materializes NSTP, modular, miscellaneous, and lecture-only discount default
     expect($assignment->successful)->toBeTrue()
         ->and($tuition->successful)->toBeTrue()
         ->and((float) $record->total_lectures)->toBe(180.0)
-        ->and((float) $record->total_laboratory)->toBe(100.0)
-        ->and((float) $record->total_tuition)->toBe(2680.0)
+        ->and((float) $record->total_laboratory)->toBe(200.0)
+        ->and((float) $record->total_tuition)->toBe(2780.0)
         ->and((float) $record->total_miscelaneous_fees)->toBe(3600.0)
-        ->and((float) $record->overall_tuition)->toBe(6280.0);
+        ->and((float) $record->overall_tuition)->toBe(6380.0);
+});
+
+it('selects the most available class only when configured', function (bool $preferLeastFilled): void {
+    $course = Course::factory()->create();
+    $student = Student::factory()->create(['course_id' => $course->id]);
+    $enrollment = StudentEnrollment::factory()->create([
+        'student_id' => $student->id, 'course_id' => $course->id,
+        'academic_year' => 1, 'semester' => 1, 'school_year' => '2026 - 2027',
+    ]);
+    $subject = Subject::factory()->create(['course_id' => $course->id]);
+    $subjectEnrollment = SubjectEnrollment::query()->create([
+        'enrollment_id' => $enrollment->id, 'student_id' => $student->id, 'subject_id' => $subject->id,
+        'academic_year' => 1, 'semester' => 1, 'school_year' => '2026 - 2027',
+    ]);
+    $attributes = ['school_id' => $enrollment->school_id, 'subject_id' => $subject->id,
+        'subject_code' => $subject->code, 'semester' => 1, 'school_year' => '2026 - 2027'];
+    $first = Classes::factory()->create([...$attributes, 'maximum_slots' => 2]);
+    $roomier = Classes::factory()->create([...$attributes, 'maximum_slots' => 10]);
+    $handler = app(EnrollmentPolicyRegistry::class)->action('enrollment.assign_classes');
+
+    $result = $handler->execute(EnrollmentContext::fromEnrollment($enrollment), [
+        'mode' => 'first_available', 'prefer_least_filled' => $preferLeastFilled,
+    ], 'ranked-class');
+
+    expect($result->successful)->toBeTrue();
+    expect($subjectEnrollment->refresh()->class_id)->toBe($preferLeastFilled ? $roomier->id : $first->id);
+})->with(['default ID order' => false, 'remaining seats' => true]);
+
+it('ranks remaining active seats rather than raw capacity', function (): void {
+    $course = Course::factory()->create();
+    $student = Student::factory()->create(['course_id' => $course->id]);
+    $enrollment = StudentEnrollment::factory()->create([
+        'student_id' => $student->id, 'course_id' => $course->id,
+        'academic_year' => 1, 'semester' => 1, 'school_year' => '2026 - 2027',
+    ]);
+    $subject = Subject::factory()->create(['course_id' => $course->id]);
+    $subjectEnrollment = SubjectEnrollment::query()->create([
+        'enrollment_id' => $enrollment->id, 'student_id' => $student->id, 'subject_id' => $subject->id,
+        'academic_year' => 1, 'semester' => 1, 'school_year' => '2026 - 2027',
+    ]);
+    $attributes = ['school_id' => $enrollment->school_id, 'subject_id' => $subject->id,
+        'subject_code' => $subject->code, 'semester' => 1, 'school_year' => '2026 - 2027'];
+    $busy = Classes::factory()->create([...$attributes, 'maximum_slots' => 3]);
+    $available = Classes::factory()->create([...$attributes, 'maximum_slots' => 2]);
+    foreach (Student::factory()->count(2)->create() as $other) {
+        ClassEnrollment::query()->create(['class_id' => $busy->id, 'student_id' => $other->id, 'status' => true]);
+    }
+    $handler = app(EnrollmentPolicyRegistry::class)->action('enrollment.assign_classes');
+
+    $result = $handler->execute(EnrollmentContext::fromEnrollment($enrollment), [
+        'mode' => 'first_available', 'prefer_least_filled' => true,
+    ], 'remaining-active-seats');
+
+    expect($result->successful)->toBeTrue();
+    expect($subjectEnrollment->refresh()->class_id)->toBe($available->id);
 });
