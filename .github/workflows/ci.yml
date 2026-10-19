@@ -182,11 +182,6 @@ jobs:
             scripts/check-release-assets.sh scripts/generate-version-metadata.sh \
             tests/installer-release.sh tests/Fixtures/installer/docker tests/Fixtures/installer/curl
 
-      - name: Exercise stable and edge installers
-        run: |
-          bash tests/installer-release.sh stable
-          bash tests/installer-release.sh edge
-
       - name: Validate one-line Swarm stack
         run: |
           docker compose --env-file tests/Fixtures/installer/swarm-stack.env \

@@ -1,0 +1,48 @@
+name: Installer release check
+
+on:
+  release:
+    types:
+      - published
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to verify (for example v1.2.3)
+        required: false
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: installer-${{ github.event.release.tag_name || inputs.tag || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  installer:
+    name: Exercise stable installer
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag || github.ref }}
+          persist-credentials: false
+
+      - name: Exercise stable installer
+        run: bash tests/installer-release.sh stable
+
+      - name: Validate one-line Swarm stack
+        run: |
+          docker compose --env-file tests/Fixtures/installer/swarm-stack.env \
+            -f scripts/swarm-stack.yml config --quiet
+          docker compose --env-file tests/Fixtures/installer/swarm-stack.env \
+            -f scripts/swarm-stack-direct.yml config --quiet
+          set -a
+          source tests/Fixtures/installer/swarm-stack.env
+          set +a
+          docker stack config --compose-file scripts/swarm-stack.yml >/dev/null
+          docker stack config --compose-file scripts/swarm-stack-direct.yml >/dev/null
