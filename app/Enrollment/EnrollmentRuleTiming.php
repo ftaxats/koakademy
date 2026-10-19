@@ -13,6 +13,6 @@ final class EnrollmentRuleTiming
 
     public static function appliesAtCompletion(string $handler): bool
     {
-        return $handler === 'billing.minimum_payment';
+        return in_array($handler, ['billing.minimum_payment', 'academics.maximum_assigned_units', 'billing.maximum_other_assessment_balance'], true);
     }
 }

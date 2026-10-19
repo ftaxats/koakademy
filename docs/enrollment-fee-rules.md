@@ -47,3 +47,14 @@ The unsupported **Include eligible irregular subjects** control was removed. Aut
 ## Deferred work
 
 This change does not add dynamic semesters/year catalogs, arbitrary discount scopes, cumulative-payment gate redesign, new notification channels, prerequisite/grade/schedule fact providers, or full Filament/API migration. Those require separate domain changes and end-to-end coverage; their controls are not added here.
+
+## Trusted completion limits
+
+Two new registry rules are available in the pipeline rule editor:
+
+- `academics.maximum_assigned_units`: configure `maximum`; sums current curriculum lecture + lab units for saved assigned subjects, including tuition-excluded rows. It deliberately ignores caller facts and editable submitted unit counts. Missing subjects fail closed. This is not a frozen historical curriculum-unit snapshot.
+- `billing.maximum_other_assessment_balance`: configure `maximum`; sums authoritative positive ledger balances for the same student's other non-cancelled assessments in the enrollment's school. Excludes the current assessment, cancelled/deleted enrollments, and unlinked legacy tuition. Credits do not offset another assessment's debt. It covers other assessments, not strictly earlier periods.
+
+These rules enforce at terminal completion, including terminal-entry submissions. A failure rolls back the transition/submission. They may also be used explicitly as branch conditions. Simulation evaluates saved records; hypothetical samples without a saved enrollment report these checks as deferred, not verified eligibility. Existing fact-based `eligibility.unit_limit` and `eligibility.outstanding_balance` retain their old behavior and are not automatically migrated.
+
+MCP subject creation calculates assessed fees before saving, rather than relying on zero fees to trigger recalculation. Explicit zero fee overrides remain final.

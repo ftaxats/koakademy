@@ -1411,3 +1411,42 @@ it('still reverses payments when reopening a completed transition', function ():
         ->and(data_get(EnrollmentWorkflowEvent::query()->where('event_type', 'reopened')->latest('id')->value('result'), 'payment_reversal.skipped'))
         ->toBeNull();
 });
+
+it('blocks completion using saved curriculum units and rolls back the transition', function (): void {
+    $school = School::factory()->create();
+    $course = App\Models\Course::factory()->create(['school_id' => $school->id]);
+    $student = Student::factory()->create(['school_id' => $school->id, 'course_id' => $course->id]);
+    $subject = Subject::factory()->create(['course_id' => $course->id, 'lecture' => 3, 'laboratory' => 2]);
+    $configuration = EnrollmentPolicyPreset::standard();
+    $configuration['rules'][] = ['key' => 'maximum_units', 'handler' => 'academics.maximum_assigned_units', 'configuration' => ['maximum' => 4]];
+    $configuration['workflow']['steps'][2]['actions'] = [];
+    ($this->publishEnrollmentPolicy)($configuration, $school);
+    $coordinator = app(EnrollmentWorkflowCoordinator::class);
+    $enrollment = $coordinator->submit(($this->submissionFor)($student, $subject, 'trusted-unit-gate'));
+    $coordinator->verifyAcademic($enrollment, $this->actor, 'trusted-unit-academic');
+
+    expect(fn () => $coordinator->transition($enrollment->fresh(), $this->actor, null, [], 'trusted-unit-complete'))
+        ->toThrow(EnrollmentTransitionException::class, 'Assigned units exceed');
+    expect($enrollment->refresh()->current_step_key)->toBe('academic_verified');
+    expect($enrollment->terminal_outcome)->toBeNull();
+});
+
+it('enforces record limits on terminal entry workflows and rolls back submission', function (): void {
+    $school = School::factory()->create();
+    $course = App\Models\Course::factory()->create(['school_id' => $school->id]);
+    $student = Student::factory()->create(['school_id' => $school->id, 'course_id' => $course->id]);
+    $subject = Subject::factory()->create(['course_id' => $course->id, 'lecture' => 3, 'laboratory' => 2]);
+    $configuration = EnrollmentPolicyPreset::standard();
+    $configuration['rules'][] = ['key' => 'maximum_units', 'handler' => 'academics.maximum_assigned_units', 'configuration' => ['maximum' => 4]];
+    $entry = $configuration['workflow']['steps'][0];
+    $entry['terminal'] = true;
+    $entry['outcome'] = 'completed';
+    $entry['transitions'] = [];
+    $configuration['workflow']['steps'] = [$entry];
+    ($this->publishEnrollmentPolicy)($configuration, $school);
+
+    expect(fn () => app(EnrollmentWorkflowCoordinator::class)->submit(($this->submissionFor)($student, $subject, 'terminal-entry-unit-gate')))
+        ->toThrow(EnrollmentTransitionException::class, 'Assigned units exceed');
+    $this->assertDatabaseMissing('student_enrollment', ['student_id' => $student->id]);
+    $this->assertDatabaseMissing('subject_enrollments', ['student_id' => $student->id]);
+});
