@@ -8,11 +8,12 @@ use App\Contracts\Enrollment\EnrollmentOperatorSchemaProvider;
 use App\Contracts\Enrollment\EnrollmentRuleHandler;
 use App\Data\Enrollment\EnrollmentContext;
 use App\Data\Enrollment\RuleResult;
+use App\Enrollment\EnrollmentMinimumPayment;
 use Carbon\CarbonImmutable;
 
 final readonly class ConfiguredEnrollmentRuleHandler implements EnrollmentOperatorSchemaProvider, EnrollmentRuleHandler
 {
-    public function __construct(private string $handlerKey, private string $label, private string $category) {}
+    public function __construct(private string $handlerKey, private string $label, private string $category, private EnrollmentMinimumPayment $minimumPayments = new EnrollmentMinimumPayment) {}
 
     public function key(): string
     {
@@ -159,31 +160,11 @@ final readonly class ConfiguredEnrollmentRuleHandler implements EnrollmentOperat
     /** @param array<string, mixed> $configuration */
     private function minimumPayment(EnrollmentContext $context, array $configuration): RuleResult
     {
-        $type = (string) ($configuration['type'] ?? 'none');
-        if ($type === 'none') {
-            return RuleResult::pass();
-        }
-
-        $enrollment = $context->enrollment;
-        if (! $enrollment) {
+        if (! $context->enrollment?->exists) {
             return RuleResult::fail('Enrollment payment data is unavailable.');
         }
-        $paid = array_key_exists('payment_amount', $context->facts)
-            ? (float) $context->facts['payment_amount']
-            : (float) $enrollment->enrollmentTransactions()->sum('amount');
-        $required = match ($type) {
-            'fixed' => max(0.0, (float) ($configuration['value'] ?? 0)),
-            'percentage' => (float) $enrollment->studentTuition()->value('overall_tuition')
-                * min(100.0, max(0.0, (float) ($configuration['value'] ?? 0))) / 100,
-            default => -1,
-        };
-        if ($required < 0) {
-            return RuleResult::fail('Minimum payment configuration is invalid.');
-        }
 
-        return $paid >= $required
-            ? RuleResult::pass(['paid' => $paid, 'required' => $required])
-            : RuleResult::fail('The configured minimum payment has not been received.', ['paid' => $paid, 'required' => $required]);
+        return $this->minimumPayments->evaluate($context->enrollment, $configuration);
     }
 
     /** @param array<string, mixed> $configuration */

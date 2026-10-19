@@ -19,6 +19,7 @@ final readonly class EnrollmentPaymentService
     public function __construct(
         private EnrollmentBillingService $billing,
         private FinancialDocumentService $financialDocuments,
+        private EnrollmentMinimumPayment $minimumPayments,
     ) {}
 
     /** @param array<string, mixed> $configuration */
@@ -51,8 +52,17 @@ final readonly class EnrollmentPaymentService
             return ActionResult::failure('A reason is required for payment verification without a receipt.');
         }
 
+        $minimumConfiguration = data_get($billing, 'configuration.minimum_payment', [
+            'type' => data_get($billing, 'configuration.minimum_payment_type', 'none'),
+            'value' => data_get($billing, 'configuration.minimum_payment_value', 0),
+        ]);
         $recordTransaction = (bool) ($configuration['record_transaction'] ?? ($receiptMode !== 'none' && ! $withoutReceipt));
         if (! $recordTransaction) {
+            $gate = $this->minimumPayments->evaluate($enrollment, $minimumConfiguration);
+            if (! $gate->passed) {
+                return ActionResult::failure($gate->message);
+            }
+
             return ActionResult::success([
                 'verified' => 'payment',
                 'receipt_mode' => $receiptMode,
@@ -86,10 +96,16 @@ final readonly class EnrollmentPaymentService
         }
 
         $settlements = is_array($payload['settlements'] ?? null) ? $payload['settlements'] : [];
-        $tuitionPayment = (float) ($settlements['tuition_fee'] ?? 0);
-        $minimum = $this->minimumPayment($enrollment, $billing);
-        if ($tuitionPayment < $minimum) {
-            return ActionResult::failure('The tuition payment does not meet the configured minimum of '.number_format($minimum, 2).'.');
+        foreach ($settlements as $amount) {
+            if (! is_numeric($amount) || ! is_finite((float) $amount) || (float) $amount < 0) {
+                return ActionResult::failure('Settlement amounts must be finite non-negative numbers.');
+            }
+        }
+        $existingPayment = $enrollment->enrollmentTransactions()->where('idempotency_key', $idempotencyKey)->exists();
+        $gate = $this->minimumPayments->evaluate($enrollment, $minimumConfiguration,
+            $existingPayment ? 0.0 : (float) ($settlements['tuition_fee'] ?? 0));
+        if (! $gate->passed) {
+            return ActionResult::failure($gate->message);
         }
 
         $separateFees = $enrollment->additionalFees()
@@ -278,25 +294,5 @@ final readonly class EnrollmentPaymentService
         ]);
 
         return $studentTransaction->setRelation('transaction', $transaction);
-    }
-
-    /** @param array<string, mixed> $billing */
-    private function minimumPayment(StudentEnrollment $enrollment, array $billing): float
-    {
-        $overallTuition = (float) $enrollment->studentTuition()->value('overall_tuition');
-        $configuration = is_array($billing['configuration'] ?? null) ? $billing['configuration'] : [];
-        $minimum = is_array($configuration['minimum_payment'] ?? null)
-            ? $configuration['minimum_payment']
-            : [
-                'type' => $configuration['minimum_payment_type'] ?? 'none',
-                'value' => $configuration['minimum_payment_value'] ?? 0,
-            ];
-
-        return match ((string) ($minimum['type'] ?? 'none')) {
-            'fixed' => max(0.0, (float) ($minimum['value'] ?? 0)),
-            'percentage' => max(0.0, $overallTuition)
-                * min(100.0, max(0.0, (float) ($minimum['value'] ?? 0))) / 100,
-            default => 0.0,
-        };
     }
 }
