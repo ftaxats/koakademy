@@ -36,7 +36,7 @@ Settings are data, not executable PHP/JavaScript. Keep custom calculations in re
 
 ## Remaining compatibility boundaries
 
-Older Filament form/provider calculations and the Filament API create handler still have their own fee formulas. They need a separate migration to this contract before claiming identical pricing across every enrollment entry point. Curriculum-year miscellaneous inference remains the fallback when no policy override is supplied. Old Filament downpayment defaults remain unchanged.
+Older Filament form/provider calculations still have their own fee formulas. The Filament API create handler now submits through the typed workflow and uses shared assignment/assessment logic in its legacy fallback. They need a separate migration to this contract before claiming identical pricing across every enrollment entry point. Curriculum-year miscellaneous inference remains the fallback when no policy override is supplied. Old Filament downpayment defaults remain unchanged.
 
 ## Assignment behavior
 
@@ -46,7 +46,7 @@ The unsupported **Include eligible irregular subjects** control was removed. Aut
 
 ## Deferred work
 
-This change does not add dynamic semesters/year catalogs, arbitrary discount scopes, cumulative-payment gate redesign, new notification channels, prerequisite/grade/schedule fact providers, or full Filament/API migration. Those require separate domain changes and end-to-end coverage; their controls are not added here.
+This change does not add dynamic semesters/year catalogs, arbitrary discount scopes, new notification channels, prerequisite/grade/schedule fact providers, or full Filament/API migration. Those require separate domain changes and end-to-end coverage; their controls are not added here.
 
 ## Trusted completion limits
 
@@ -58,3 +58,11 @@ Two new registry rules are available in the pipeline rule editor:
 These rules enforce at terminal completion, including terminal-entry submissions. A failure rolls back the transition/submission. They may also be used explicitly as branch conditions. Simulation evaluates saved records; hypothetical samples without a saved enrollment report these checks as deferred, not verified eligibility. Existing fact-based `eligibility.unit_limit` and `eligibility.outstanding_balance` retain their old behavior and are not automatically migrated.
 
 MCP subject creation calculates assessed fees before saving, rather than relying on zero fees to trigger recalculation. Explicit zero fee overrides remain final.
+
+## Cumulative minimum-payment gate
+
+Payment verification and the `billing.minimum_payment` completion rule share `EnrollmentMinimumPayment`. The gate counts verified allocations to the current assessment plus verified enrollment-linked `tuition_fee` receipts not already represented by those allocations. Allocation rows replace, rather than duplicate, the same transaction's legacy settlement amount. Mixed allocated and new linked receipts are supported.
+
+The minimum is cumulative, not a fresh minimum on every installment. Pending/reversed transactions, additional-fee-only receipts, opening paid caches, expected downpayments, and caller `payment_amount` facts do not satisfy this gate. This intentionally tightens older completion checks that counted every linked charge. Percentage minimums require a saved assessment. No-receipt verification still requires the configured minimum to have already been received. Settlement values must be finite and non-negative. Idempotent replays do not add their incoming amount twice.
+
+The Filament API create handler now honors policy workflow actions and snapshots, shares fee formulas with administrator enrollment, and supports `Idempotency-Key`. Legacy creation preserves supplied final fees and validates assigned classes through the shared assignment service. Invalid workflows/assignments use framework validation responses rather than returning raw exception details in a custom 500 response. Form validation retains its existing field constraints.

@@ -4,14 +4,20 @@ declare(strict_types=1);
 
 namespace App\Filament\Resources\StudentEnrollments\Api\Handlers;
 
+use App\Data\Enrollment\EnrollmentContext;
+use App\Data\Enrollment\EnrollmentSubmissionData;
+use App\Enrollment\EnrollmentAssignmentService;
+use App\Enrollment\EnrollmentWorkflowCoordinator;
 use App\Filament\Resources\StudentEnrollments\Api\Requests\CreateStudentEnrollmentRequest;
 use App\Filament\Resources\StudentEnrollments\StudentEnrollmentResource;
 use App\Models\Course;
-use App\Models\Subject;
+use App\Models\StudentEnrollment;
+use App\Models\User;
+use App\Services\EnrollmentService;
 use App\Services\GeneralSettingsService;
-use Exception;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use Override;
 use Rupadana\ApiService\Http\Handlers;
 
@@ -35,157 +41,61 @@ final class CreateHandler extends Handlers
         return self::$resource::getModel();
     }
 
-    /**
-     * Create StudentEnrollment
-     *
-     * @return \Illuminate\Http\JsonResponse
-     */
-    public function handler(CreateStudentEnrollmentRequest $request)
+    public function handler(CreateStudentEnrollmentRequest $request): JsonResponse
     {
-        DB::beginTransaction();
-
-        try {
-            $generalSettingsService = app(GeneralSettingsService::class);
-
-            // Create the main enrollment record
-            $model = new (self::getModel());
-            $model->fill([
-                'student_id' => $request->input('student_id'),
-                'course_id' => $request->input('course_id'),
-                'semester' => $request->input('semester'),
-                'academic_year' => $request->input('academic_year'),
-                'school_year' => $generalSettingsService->getCurrentSchoolYearString(),
-                'downpayment' => $request->input('downpayment', 0),
-                'remarks' => $request->input('remarks'),
-            ]);
-            $model->save();
-
-            // Get course for fee calculation
-            $course = Course::find($request->input('course_id'));
-
-            // Calculate totals
-            $totalLectureFee = 0;
-            $totalLaboratoryFee = 0;
-
-            // Process subject enrollments
-            if ($request->filled('subjectsEnrolled')) {
-                foreach ($request->input('subjectsEnrolled', []) as $subjectData) {
-                    $subject = Subject::find($subjectData['subject_id']);
-
-                    // Calculate fees based on subject type
-                    if (isset($subjectData['is_modular']) && $subjectData['is_modular']) {
-                        // Modular subjects have fixed 2400 fee
-                        $lectureFee = 2400;
-                        $laboratoryFee = 0;
-                    } else {
-                        // Calculate lecture fee
-                        $totalUnits = $subject->lecture + $subject->laboratory;
-                        $lectureFee = $totalUnits * $course->lec_per_unit;
-
-                        // Apply NSTP 50% discount
-                        if (str_contains(mb_strtoupper((string) $subject->code), 'NSTP')) {
-                            $lectureFee *= 0.5;
-                        }
-
-                        // Calculate laboratory fee
-                        $laboratoryFee = 1 * $course->lab_per_unit;
-                    }
-
-                    // Create subject enrollment
-                    $model->subjectsEnrolled()->create([
-                        'subject_id' => $subjectData['subject_id'],
-                        'class_id' => $subjectData['class_id'],
-                        'is_modular' => $subjectData['is_modular'] ?? false,
-                        'enrolled_lecture_units' => $subject->lecture,
-                        'enrolled_laboratory_units' => $subject->laboratory,
-                        'lecture_fee' => $lectureFee,
-                        'laboratory_fee' => $laboratoryFee,
-                        'school_year' => $generalSettingsService->getCurrentSchoolYearString(),
-                        'semester' => $request->input('semester'),
-                        'academic_year' => $request->input('academic_year'),
-                    ]);
-
-                    // Add to totals
-                    $totalLectureFee += $lectureFee;
-                    $totalLaboratoryFee += $laboratoryFee;
-                }
-            }
-
-            // Calculate tuition with discount
-            $discount = $request->input('discount', 0);
-            $discountMultiplier = 1 - ($discount / 100);
-            $discountedLectureFee = $totalLectureFee * $discountMultiplier;
-
-            // Get miscellaneous fees
-            $miscellaneousFees = $course->getMiscellaneousFee();
-
-            // Calculate totals
-            $totalTuition = $discountedLectureFee + $totalLaboratoryFee;
-            $overallTuition = $totalTuition + $miscellaneousFees;
-
-            // Add additional fees to overall tuition
-            $additionalFeesTotal = 0;
-            if ($request->filled('additionalFees')) {
-                foreach ($request->input('additionalFees', []) as $feeData) {
-                    $additionalFeesTotal += $feeData['amount'];
-                }
-                $overallTuition += $additionalFeesTotal;
-            }
-
-            // Downpayment is an expected cashier collection amount until a payment transaction is verified.
-            $downpayment = $request->input('downpayment', 0);
-            $totalBalance = $overallTuition;
-
-            // Create StudentTuition record
-            $model->studentTuition()->create([
-                'discount' => $discount,
-                'total_lectures' => $discountedLectureFee,
-                'total_laboratory' => $totalLaboratoryFee,
-                'total_tuition' => $totalTuition,
-                'total_miscelaneous_fees' => $miscellaneousFees,
-                'overall_tuition' => $overallTuition,
-                'downpayment' => $downpayment,
-                'total_balance' => $totalBalance,
-            ]);
-
-            // Create additional fees
-            if ($request->filled('additionalFees')) {
-                foreach ($request->input('additionalFees', []) as $feeData) {
-                    $model->additionalFees()->create([
-                        'fee_name' => $feeData['fee_name'],
-                        'amount' => $feeData['amount'],
-                        'description' => $feeData['description'] ?? null,
-                        'is_separate_transaction' => $feeData['is_separate_transaction'] ?? false,
-                    ]);
-                }
-            }
-
-            DB::commit();
-
-            // Load relationships for response
-            $model->load([
-                'student.course',
-                'course',
-                'subjectsEnrolled.subject',
-                'subjectsEnrolled.class',
-                'studentTuition',
-                'additionalFees',
-            ]);
-
-            return self::sendSuccessResponse($model, 'Successfully Create Resource');
-
-        } catch (Exception $e) {
-            DB::rollBack();
-            Log::error('Failed to create student enrollment', [
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString(),
-            ]);
-
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to create enrollment',
-                'error' => $e->getMessage(),
-            ], 500);
+        $validated = $request->validated();
+        $course = Course::query()->findOrFail($validated['course_id']);
+        $subjects = $validated['subjectsEnrolled'] ?? [];
+        $fees = $validated['additionalFees'] ?? [];
+        $classes = collect($subjects)->filter(fn (array $subject): bool => ! empty($subject['class_id']))
+            ->map(fn (array $subject): array => ['subject_id' => (int) $subject['subject_id'], 'class_id' => (int) $subject['class_id']])->values()->all();
+        $billing = ['discount_percentage' => $validated['discount'] ?? 0, 'downpayment' => $validated['downpayment'] ?? 0];
+        if (isset($validated['miscellaneous'])) {
+            $billing['miscellaneous_fee'] = $validated['miscellaneous'];
         }
+        $actor = $request->user();
+        $model = app(EnrollmentWorkflowCoordinator::class)->submit(new EnrollmentSubmissionData(
+            enrollmentAttributes: [
+                'student_id' => $validated['student_id'], 'course_id' => $course->id, 'school_id' => $course->school_id,
+                'semester' => $validated['semester'], 'academic_year' => $validated['academic_year'],
+                'school_year' => app(GeneralSettingsService::class)->getCurrentSchoolYearString(),
+                'downpayment' => $validated['downpayment'] ?? 0, 'remarks' => $validated['remarks'] ?? null,
+            ],
+            subjects: $subjects,
+            classAssignments: $classes,
+            additionalFees: $fees,
+            billingOverrides: $billing,
+            channel: 'api',
+            idempotencyKey: (string) ($request->header('Idempotency-Key') ?: Str::uuid()),
+            actor: $actor instanceof User ? $actor : null,
+        ), function (StudentEnrollment $enrollment) use ($subjects, $fees, $classes, $billing): void {
+            $context = EnrollmentContext::fromEnrollment($enrollment);
+            $assignment = app(EnrollmentAssignmentService::class);
+            $assigned = $assignment->assignSubjects($context, ['source' => 'runtime_payload', 'runtime_payload' => ['subjects' => $subjects]]);
+            if (! $assigned->successful) {
+                throw ValidationException::withMessages(['subjectsEnrolled' => $assigned->message]);
+            }
+            $assignedClasses = $assignment->assignClasses($context, ['mode' => 'runtime_payload', 'optional' => true, 'runtime_payload' => ['assignments' => $classes]]);
+            if (! $assignedClasses->successful) {
+                throw ValidationException::withMessages(['subjectsEnrolled' => $assignedClasses->message]);
+            }
+            foreach ($fees as $fee) {
+                $enrollment->additionalFees()->create($fee);
+            }
+            $form = [
+                'subjectsEnrolled' => $enrollment->subjectsEnrolled()->get()->toArray(),
+                'discount' => $billing['discount_percentage'], 'downpayment' => $billing['downpayment'], 'additionalFees' => $fees,
+            ];
+            if (array_key_exists('miscellaneous_fee', $billing)) {
+                $form['miscellaneous_fee'] = $billing['miscellaneous_fee'];
+            }
+            if (! app(EnrollmentService::class)->createStudentTuition($enrollment, $form)) {
+                throw ValidationException::withMessages(['subjectsEnrolled' => 'The tuition assessment could not be created.']);
+            }
+        });
+
+        return self::sendSuccessResponse($model->load([
+            'student.course', 'course', 'subjectsEnrolled.subject', 'subjectsEnrolled.class', 'studentTuition', 'additionalFees',
+        ]), 'Successfully Create Resource');
     }
 }

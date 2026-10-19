@@ -183,7 +183,7 @@ final readonly class LegacyEnrollmentWorkflowAdapter
                 'overall_tuition' => $overallTotal,
                 // Add other relevant fields if needed (semester, school_year, etc.)
                 'semester' => $studentEnrollment->semester, // Assuming semester is on enrollment record
-                'school_year' => GeneralSetting::query()->first()?->getSchoolYearString(), // Fetch current school year
+                'school_year' => $studentEnrollment->school_year,
                 'academic_year' => $studentEnrollment->academic_year, // Assuming academic_year is on enrollment record
             ]);
 
