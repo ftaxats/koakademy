@@ -1,0 +1,68 @@
+---
+title: AI Assistant & MCP Server
+description: Native AI capabilities, staff inquiry assistants, and Model Context Protocol (MCP) tool integration for intelligent agent workflows.
+---
+
+# AI Assistant & MCP Server
+
+Koakademy integrates modern artificial intelligence natively through two distinct channels: an in-app **Staff AI Assistant** and an official **Model Context Protocol (MCP) Server** that connects the school database directly to external AI coding and workflow agents.
+
+---
+
+## 1. Staff AI Assistant
+
+Located within the Administrative Workspace (`AiAssistant.php` and `AdministratorAiController`), the assistant provides natural language query access to institutional records:
+
+```
+┌────────────────────────────────────────────────────────┐
+│  Koakademy Staff AI Assistant                          │
+├────────────────────────────────────────────────────────┤
+│  User: How many students are officially enrolled in    │
+│        BSIT 3rd Year for the current semester?         │
+│                                                        │
+│  Assistant: Currently, there are 142 students          │
+│             officially enrolled across 4 sections:     │
+│             • Section 3-A: 36 students                 │
+│             • Section 3-B: 35 students                 │
+│             • Section 3-C: 36 students                 │
+│             • Section 3-D: 35 students                 │
+│                                                        │
+│             Total assessed tuition for this cohort     │
+│             is ₱2,130,000.00 with ₱1,450,000 collected.│
+└────────────────────────────────────────────────────────┘
+```
+
+### Capabilities
+- **Enrollment Analytics:** Query enrollment counts, capacity bottlenecks, and registration conversion rates in natural language.
+- **Financial Summaries:** Inquire about daily collection totals, delinquent balances, and fee breakdown statistics.
+- **Academic Scheduling:** Quickly locate available classrooms or check professor schedules without navigating multiple timetable menus.
+- **Privacy Protections:** The AI assistant strictly honors the asking user's RBAC permissions. A department chair cannot query financial ledgers outside their authorized scope.
+
+---
+
+## 2. Model Context Protocol (MCP) Integration
+
+Koakademy implements the open **Model Context Protocol (MCP)** specification (`McpServer.php` and `routes/ai.php`). This allows authorized AI agents (such as Claude Desktop, Delta, Cursor, and enterprise LLM orchestrators) to interact with school operations through safe, typed tools.
+
+```
+┌──────────────────┐          MCP Protocol          ┌──────────────────┐
+│  AI Client /     │ ─────────────────────────────▶ │ Koakademy        │
+│  LLM Agent       │ ◀───────────────────────────── │ MCP Server       │
+│  (Claude, Cursor)│          JSON-RPC 2.0          │ (/api/ai/mcp)    │
+└──────────────────┘                                └────────┬─────────┘
+                                                             │
+                                                             ▼
+                                                    ┌──────────────────┐
+                                                    │ Authorized Tools │
+                                                    │ & Entity Models  │
+                                                    └──────────────────┘
+```
+
+### Supported MCP Tools
+- **Student Lookup (`get_student_profile`):** Retrieve verified student details, contact info, and current enrollment status by student number or email.
+- **Enrollment Verification (`verify_enrollment`):** Check whether a student has met all prerequisites, cleared holds, and achieved official enrolled status.
+- **Class Timetable Lookup (`get_class_schedule`):** Fetch weekly class schedules, meeting times, room locations, and instructor details.
+- **Academic Program Inquiries (`get_curriculum`):** Inspect program courses, prerequisite requirements, and credit unit distributions.
+- **Clearance Status Check (`get_student_clearance`):** Inspect active departmental clearance holds and resolution steps.
+
+For complete tool schemas, configuration steps, and security guidelines, see the [MCP API Reference](/api/mcp).

@@ -1,0 +1,82 @@
+---
+title: Bundled Specialized Modules
+description: Complete reference for Koakademy's six built-in modules—Announcements, Cashier, Inventory, Library, Notifications, and Clinic Records.
+---
+
+# Bundled Specialized Modules
+
+Koakademy includes six pre-packaged domain modules residing in `Modules/`. Each module provides dedicated Eloquent models, database migrations, Filament management resources, and portal endpoints. Modules can be enabled or disabled per institution without code changes.
+
+---
+
+## 1. Announcements Module (`Modules\Announcement`)
+
+The Announcements module coordinates school-wide and targeted communications across all user portals:
+
+- **Audience Targeting:** Publish bulletins globally, or restrict visibility to specific schools, roles (e.g. Faculty only, Students only), academic departments, or degree programs.
+- **Top Banner Alerts:** Urgent alerts (such as typhoon class cancellations or emergency advisories) can be pinned as a high-visibility global banner across all portals.
+- **Scheduled Publishing:** Specify publication and expiration dates so announcements publish and archive automatically.
+- **Rich Media & Attachments:** Supports rich text formatting, downloadable PDF memos, and embedded imagery.
+
+---
+
+## 2. Cashier Module (`Modules\Cashier`)
+
+The Cashier module provides counter operations for tuition collections, miscellaneous fee payments, and daily financial reconciliation:
+
+- **Rapid Counter Register:** Barcode and ID scanner lookup pulls up student balances in under one second.
+- **Official Receipt (OR) Registry:** Sequenced, auditable receipt numbers with automatic voiding workflows and supervisor approval gates.
+- **Multi-Tender Payments:** Accept Cash, Cheques (with bank branch and clearing dates), POS credit/debit card terminals, and mobile e-wallets.
+- **Cash Drawer Balancing:** End-of-day reconciliation comparing physical cash drawer balances against expected electronic ledger totals.
+
+---
+
+## 3. Inventory & Asset Management (`Modules\Inventory`)
+
+The Inventory module tracks physical equipment, campus facilities, classroom furnishings, and IT hardware across buildings and rooms:
+
+- **Asset Catalog & Categorization:** Classifies assets (Computer equipment, Laboratory instruments, Office furniture, AV equipment) with serial numbers and barcodes.
+- **Location & Room Tracking:** Maps assets to specific buildings, floors, and classrooms (`Room`).
+- **Custodian Accountability:** Issues Memorandum Receipts (MR) to faculty and staff members accountable for assigned hardware.
+- **Maintenance & Stock Ledger:** Logs maintenance history, repair tickets, depreciation schedules, and inventory disposal.
+
+---
+
+## 4. Library Management System (`Modules\LibrarySystem`)
+
+The Library System handles physical book cataloging, circulation desk operations, and student research archives:
+
+- **Book Catalog & Classification:** Catalogs volumes with ISBN, Dewey Decimal classification, author profiles, and barcode tracking.
+- **Circulation Desk:** Fast barcode scanning for checkout and return transactions, enforcing borrowing periods based on user role (e.g. 3 days for students, 14 days for faculty).
+- **Overdue Fines Engine:** Automated daily fine calculations for late returns, with automatic clearance hold integration.
+- **Theses & Research Paper Archive:** Digital repository for undergraduate theses, capstone projects, and faculty research papers with searchable abstracts.
+
+---
+
+## 5. Notification Center (`Modules\NotificationCenter`)
+
+The Notification Center coordinates automated transactional communications across multiple channels:
+
+- **Template Engine:** Customizable notification templates with dynamic merge tags (e.g. `{student_name}`, `{amount_due}`, `{class_name}`).
+- **Multi-Channel Dispatch:** Dispatches messages via database notifications (in-portal bell alerts), email (SMTP/SES), and SMS gateways.
+- **Batch Broadcast Queues:** Leverages background queue workers to broadcast notices to thousands of students without blocking web requests.
+- **Event Triggers:** Automated dispatches on enrollment approval, grade publication, payment receipt, and clearance holds.
+
+---
+
+## 6. Student Medical Records (`Modules\StudentMedicalRecords`)
+
+The Clinic module provides confidential campus healthcare records with HIPAA-grade privacy isolation:
+
+- **Student Health Profiles:** Tracks blood type, chronic illnesses, severe allergies, immunization records, and emergency contact details.
+- **Clinic Visit Encounters:** Records date/time, presenting symptoms, nursing diagnosis, administered medication, and recommended action.
+- **Medical Clearances:** Issues digital medical clearances required for physical education, collegiate athletics, and internship deployment.
+- **Confidentiality Boundaries:** Clinic notes are strictly isolated: faculty and general administrative staff cannot access private health records.
+
+---
+
+## Module Marketplace & Standalone Packages
+
+Beyond the six bundled modules, Koakademy supports standalone Composer modules (such as the [Forms Module](https://github.com/yukazakiri/koakademy-module-forms)) distributed via the [Koakademy Module Registry](https://github.com/yukazakiri/koakademy-modules).
+
+Administrators can toggle any installed module on or off from **Administrators → Marketplace** without redeploying the application image.

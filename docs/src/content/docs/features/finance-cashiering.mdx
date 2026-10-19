@@ -1,0 +1,121 @@
+---
+title: Financial Management, Billing & Cashiering
+description: Automated tuition fee assessments, installment schedules, statements of account, cashiering POS, and financial audits.
+---
+
+# Financial Management, Billing & Cashiering
+
+Koakademy includes an accounting and cashiering subsystem engineered for educational billing. It handles complex fee calculations, installment plans, cashier counter collections, and automated Statement of Account (SOA) generation.
+
+---
+
+## Tuition Assessment Architecture
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│                        Enrollment Assessment                           │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │
+       ┌────────────────────────────┼────────────────────────────┐
+       ▼                            ▼                            ▼
+┌──────────────┐             ┌──────────────┐             ┌──────────────┐
+│ Lecture Unit │             │  Laboratory  │             │Miscellaneous │
+│    Rates     │             │  Unit Rates  │             │& Fixed Fees  │
+└──────┬───────┘             └──────┬───────┘             └──────┬───────┘
+       │                            │                            │
+       └────────────────────────────┼────────────────────────────┘
+                                    ▼
+                     ┌─────────────────────────────┐
+                     │    Gross Tuition Total      │
+                     └──────────────┬──────────────┘
+                                    │
+                                    ▼
+                     ┌─────────────────────────────┐
+                     │    Discounts & Vouchers     │
+                     │  (Academic, Sibling, Aid)   │
+                     └──────────────┬──────────────┘
+                                    │
+                                    ▼
+                     ┌─────────────────────────────┐
+                     │     Net Assessment Due      │
+                     └──────────────┬──────────────┘
+                                    │
+                     ┌──────────────┴──────────────┐
+                     ▼                             ▼
+             ┌──────────────┐              ┌──────────────┐
+             │  Full Cash   │              │ Installment  │
+             │ Payment Plan │              │ Schedule     │
+             └──────────────┘              └──────────────┘
+```
+
+---
+
+## Fee Structures & Pricing Models
+
+### 1. Tuition Per Unit (`FeeScheduleVersion`)
+- **Lecture Units:** Standard classroom instruction rate billed per lecture credit unit.
+- **Laboratory Units:** Higher rates reflecting specialized facility consumption (e.g., computer, engineering, culinary, and nursing laboratories).
+
+### 2. Miscellaneous & Auxiliary Fees (`AdditionalFee`)
+- **Standard Institutional Fees:** Registration, Library, Athletic, Medical/Dental, Cultural, and Guidance fees.
+- **Course-Specific Fees:** Clinical affiliation fees, culinary ingredients fees, computer laboratory maintenance, and graduation fees.
+
+### 3. Discounts & Financial Assistance (`EnrollmentDiscount`)
+- **Automated Sibling Discounts:** Sibling detection automatically applies graduated discounts (e.g., 10% off tuition for second child, 20% for third child).
+- **Academic Merit Grants:** Top-ranking incoming students receive full or partial tuition waivers tied to maintaining a minimum GWA.
+- **Employee Dependents:** Tuition privileges for faculty and administrative staff children.
+- **Manual Voucher Posting:** Bursar authorization to post external sponsorship checks (e.g., government tertiary education subsidies, NGO scholarships).
+
+---
+
+## Installment Payment Plans
+
+Institutions can offer structured payment terms without manual ledger tracking (`StudentTuitionInstallment`):
+
+| Term / Stage | Typical Allocation | Enforcement Gate |
+| ------------ | ------------------ | ---------------- |
+| **Downpayment** | 20% of net tuition | Mandatory for enrollment confirmation and class roster inclusion. |
+| **Prelim Exam** | 20% of net tuition | Required for prelim exam permit issuance. |
+| **Midterm Exam** | 20% of net tuition | Required for midterm exam permit issuance. |
+| **Prefinal Exam** | 20% of net tuition | Required for prefinal exam permit issuance. |
+| **Final Exam** | Remaining balance | Required for final exam permit and grade release. |
+
+---
+
+## Cashier Point-of-Sale (POS) Workflow
+
+The Cashier Module provides a keyboard-optimized counter interface designed for high-throughput payment processing during peak enrollment rushes:
+
+```
+┌────────────────────────────────────────────────────────┐
+│  [CASHIER REGISTER]                     Terminal: POS-1│
+│                                                        │
+│  Student Lookup: [ 2026-00412 ]  JUAN DELA CRUZ        │
+│  Program: BS Information Technology                    │
+│  Outstanding Balance: ₱14,500.00                       │
+│                                                        │
+│  Allocations:                                          │
+│  [x] Midterm Installment                   ₱5,000.00   │
+│  [x] Laboratory Fee Deficiency             ₱1,200.00   │
+│                                                        │
+│  Total Amount Due:                         ₱6,200.00   │
+│  Payment Method: [ Cash / Cheque / Card / GCash ]      │
+│  Amount Tendered: ₱7,000.00      Change: ₱800.00       │
+│                                                        │
+│  [ PRINT OFFICIAL RECEIPT (OR # 2026-9841) ]           │
+└────────────────────────────────────────────────────────┘
+```
+
+- **Instant Receipt Generation:** Prints standardized Official Receipts (OR) with automatic breakdown of tuition, VAT (if applicable), and auxiliary fees.
+- **Multi-Tender Support:** Accepts split payments across Cash, Cheque, Bank Deposit, and digital payment providers.
+- **Daily Drawer Balancing:** End-of-shift reconciliation reporting cash collections, cheques received, and electronic settlements.
+
+---
+
+## Statements of Account (SOA)
+
+Koakademy generates official Statements of Account on demand for students, parents, and corporate sponsors (`StatementOfAccountIssuance`):
+
+- **Live Balances:** Real-time ledger entries showing every debit assessment, payment receipt, and applied adjustment.
+- **Cryptographic Verification:** Each SOA is stamped with a unique verification token and QR code, confirming authenticity when submitted for educational loans or visa applications.
+- **Automated Delivery:** Automated scheduled jobs can broadcast electronic statements to registered parent emails prior to upcoming exam periods.

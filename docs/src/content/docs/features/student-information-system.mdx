@@ -1,0 +1,122 @@
+---
+title: Student Information System (SIS) & Identity
+description: In-depth documentation of student lifecycle management, PSGC demographics, family records, digital ID cards, clearances, and verification.
+---
+
+# Student Information System (SIS) & Digital Identity
+
+The Student Information System is the foundational data core of Koakademy. It maintains authoritative, immutable, and comprehensive records for every student throughout their entire academic journey—from initial admission through graduation and alumni tracking.
+
+---
+
+## Student Lifecycle Architecture
+
+```
+┌─────────────────┐       ┌─────────────────┐       ┌─────────────────┐
+│   Prospective   │ ────▶ │    Applicant    │ ────▶ │    Evaluated    │
+│    Inquiry      │       │   Registration  │       │   Eligibility   │
+└─────────────────┘       └─────────────────┘       └────────┬────────┘
+                                                             │
+                                                             ▼
+┌─────────────────┐       ┌─────────────────┐       ┌─────────────────┐
+│     Alumni /    │ ◀──── │     Active      │ ◀──── │    Enrolled     │
+│    Graduated    │       │    Student      │       │   & Verified    │
+└─────────────────┘       └────────┬────────┘       └─────────────────┘
+                                   │
+                                   ▼
+                          ┌─────────────────┐
+                          │   Exceptions    │
+                          │ (LOA, Dropped)  │
+                          └─────────────────┘
+```
+
+---
+
+## Comprehensive Student Profile
+
+Koakademy stores student data across dedicated, normalized entity models to protect privacy, support regulatory requirements, and ensure clean separation of concerns:
+
+### 1. Personal & Demographic Data (`StudentsPersonalInfo`)
+- **Official Identity:** Full legal name (First, Middle, Last, Name Extension / Suffix).
+- **Civil & Birth Details:** Date of birth, gender, civil status, nationality, religion, and place of birth.
+- **Birth Verification:** PSA Birth Certificate registry number and verified documentation attachment.
+- **Philippine Geographic Hierarchy (PSGC):** Full normalized address hierarchy matching the Philippine Standard Geographic Code:
+  - Region (e.g. Region IV-A CALABARZON, NCR)
+  - Province (e.g. Cavite, Laguna, Rizal)
+  - Municipality / City (e.g. Dasmariñas, Quezon City)
+  - Barangay (e.g. Barangay San Agustin)
+  - Street address, ZIP / Postal code
+
+### 2. Contact & Emergency Details (`StudentContact`)
+- **Primary Contact Channels:** Personal email address, institutional student email, mobile phone number, and landline.
+- **Emergency Contacts:** Primary and alternate emergency contacts with full names, phone numbers, verified relationships, and residential addresses.
+
+### 3. Family & Parental Background (`StudentParentsInfo`)
+- **Father's Details:** Full name, occupation, educational attainment, contact phone number, and deceased status indicator.
+- **Mother's Details:** Full maiden name, occupation, educational attainment, contact phone number, and deceased status indicator.
+- **Guardian Details:** Designated legal guardian for minors, including notarized guardianship documentation and authorized emergency pickup status.
+- **Socio-Economic Classification:** Household income brackets used by the financial aid and scholarship engine to automatically qualify students for targeted tuition relief.
+
+### 4. Educational Background (`StudentEducationInfo`)
+- **Primary & Intermediate Education:** Elementary school name, completion year, and honors.
+- **Junior High School (JHS):** School name, graduation year, general average, and Learner Reference Number (LRN).
+- **Senior High School (SHS):** Strand/track completed, school name, graduation year, and voucher program participation.
+- **Tertiary / Transferee Records:** Previous college or university attended, honorable dismissal status, and official Transcript of Records (TOR) for credit evaluation.
+
+---
+
+## Digital Student ID Cards & QR Verification
+
+Koakademy includes an integrated digital identification subsystem. Every student is provisioned with a secure digital ID card accessible on mobile devices through the Student Portal and printable on PVC ID cards by the registrar.
+
+```
+┌──────────────────────────────────────────────┐
+│  [INSTITUTION LOGO]       ACADEMIC YEAR 2026 │
+│                                              │
+│  ┌────────────┐  JUAN DELA CRUZ              │
+│  │            │  Student ID: 2026-00412      │
+│  │   PHOTO    │  BS Information Technology   │
+│  │            │  Year Level: 3rd Year        │
+│  └────────────┘                              │
+│                                              │
+│  VALIDITY: FIRST SEMESTER 2026-2027          │
+│  ┌──────────┐  BARCODE: ||||||||||||||||||   │
+│  │ QR CODE  │                                │
+│  └──────────┘  VERIFICATION HASH: 8f3a9b1c   │
+└──────────────────────────────────────────────┘
+```
+
+### Digital ID Features
+- **Server-Side Rendering:** ID cards are generated on demand with the institution's official brand styling, seal, and signature blocks.
+- **Cryptographic QR Code:** Contains a signed verification token that points to the public verification endpoint.
+- **Photo Upload & Cropping:** Automated aspect-ratio enforcement and image optimization for high-density printing.
+- **Offline Wallet & Pass:** Students can save their digital ID directly to their mobile device for gate entry and library access.
+
+### Verification Engine
+Anyone scanning the ID card's QR code (e.g., campus security, external regulatory bodies, or partner institutions) is directed to the public verification route:
+
+- If the student is **Active & Enrolled**, the system displays a verified confirmation banner with current enrollment period, photo, and degree program.
+- If the student is **Suspended, Dropped, or Inactive**, the verification displays an alert status without revealing private contact details or academic grades.
+
+---
+
+## Student Clearances & Administrative Holds
+
+The Clearance Management engine (`ManageStudentClearances`) coordinates multi-departmental sign-offs at the end of each academic term:
+
+| Department | Clearance Requirement | Hold Impact |
+| ---------- | --------------------- | ----------- |
+| **Library** | No overdue books, unreturned research papers, or unpaid damage penalties. | Blocks release of grades and graduation documents. |
+| **Cashier / Finance** | Zero outstanding tuition balance or compliant installment agreement. | Blocks online enrollment for succeeding semester and exam permits. |
+| **Clinic / Medical** | Annual physical examination and complete health record clearance. | Blocks laboratory access and physical education subject enrollment. |
+| **Registrar** | Complete submission of entrance credentials (Form 137, PSA birth certificate, Good Moral Certificate). | Blocks graduation application and official transcript issuance. |
+| **Prefect of Discipline** | No unresolved disciplinary cases, suspension orders, or community service obligations. | Blocks campus access and student leadership participation. |
+
+---
+
+## Status Audit & ID Revision Ledger
+
+Educational institutions must maintain an unbroken chain of custody for student identity:
+
+- **Student Status Ledger (`StudentStatusRecord`):** Records every status transition (e.g., `Applicant` -> `Enrolled` -> `Leave of Absence` -> `Re-admitted`) with the acting administrator's user ID, timestamp, and formal justification note.
+- **Student ID Change Log (`StudentIdChangeLog`):** When student numbering schemes change or administrative re-numbering occurs, the historical number is retained in an immutable log, ensuring previous transcripts and historical diplomas remain verifiable.
