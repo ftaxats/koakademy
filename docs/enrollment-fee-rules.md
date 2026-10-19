@@ -74,3 +74,13 @@ The Filament API create handler now honors policy workflow actions and snapshots
 Different sections cannot overlap on the same normalized weekday. Back-to-back classes pass with zero gap; an exact configured gap passes. Repeated sessions within the same section are not treated as cross-class conflicts. Missing/unknown days and non-increasing or overnight time ranges are unchecked data: default blocks, while explicit allow reports unchecked class IDs. No active sections fails closed. Subjects without assigned sections are outside this rule's scope.
 
 The gate runs at completion, or explicitly as a branch condition. Saved-enrollment simulation evaluates it; hypothetical samples defer it. A blocked transition rolls back. Existing `eligibility.schedule_conflict` retains its fact-based compatibility behavior. This check reads current schedules and is not a reservation or a guarantee against concurrent timetable edits after verification.
+
+## Verified prerequisite completion gate
+
+`academics.verified_prerequisites` checks all prerequisite subject IDs on currently assigned curriculum subjects. Each prerequisite must belong to this school and have a passing attempt in another enrollment marked `terminal_outcome=completed` from an earlier academic period. Any passing earlier attempt counts; this is not a latest-retake/GWA rule. Same/current/future periods, cancelled enrollments, and unlinked legacy rows cannot satisfy it. School years must use consecutive `YYYY - YYYY` format (spaces optional). Missing school, malformed prerequisite IDs, and unavailable curriculum fail closed.
+
+Recorded `pass`/`passed` outcomes count. If outcome is null, the attempt's published pinned grading policy evaluates its numeric or symbolic grade. No current global grade threshold is guessed, and evaluation does not write back outcomes. Legacy numeric grades without a recorded outcome or pinned policy need registrar reconciliation before using this gate.
+
+`accept_credited` defaults false. Enabling it trusts an existing `is_credited` row with matching `subject_id` or mapped `credited_subject_id` without requiring a grade; it does not invent an approval workflow. The source enrollment must still be completed in an earlier period. Arbitrary code equivalences and concurrent corequisites are not inferred.
+
+This is an opt-in completion gate, also usable as a branch condition. Existing fact-based `eligibility.prerequisites` remains unchanged. Saved-enrollment simulation evaluates it; hypothetical samples defer it. Curriculum prerequisites and grade records are read at check time rather than frozen into the enrollment policy snapshot. Irregular automatic assignment and full grading-policy migration remain separate work.

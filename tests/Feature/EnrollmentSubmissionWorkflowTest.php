@@ -1474,3 +1474,23 @@ it('blocks completion when saved active sections overlap', function (): void {
     expect($enrollment->refresh()->current_step_key)->toBe('academic_verified');
     expect($enrollment->terminal_outcome)->toBeNull();
 });
+
+it('blocks completion when verified prerequisite history is missing', function (): void {
+    $school = School::factory()->create();
+    $course = App\Models\Course::factory()->create(['school_id' => $school->id]);
+    $student = Student::factory()->create(['school_id' => $school->id, 'course_id' => $course->id]);
+    $required = Subject::factory()->create(['course_id' => $course->id]);
+    $subject = Subject::factory()->create(['course_id' => $course->id, 'pre_riquisite' => [$required->id]]);
+    $configuration = EnrollmentPolicyPreset::standard();
+    $configuration['rules'][] = ['key' => 'saved_prerequisites', 'handler' => 'academics.verified_prerequisites', 'configuration' => []];
+    $configuration['workflow']['steps'][2]['actions'] = [];
+    ($this->publishEnrollmentPolicy)($configuration, $school);
+    $coordinator = app(EnrollmentWorkflowCoordinator::class);
+    $enrollment = $coordinator->submit(($this->submissionFor)($student, $subject, 'saved-prerequisite-gate'));
+    $coordinator->verifyAcademic($enrollment, $this->actor, 'saved-prerequisite-academic');
+
+    expect(fn () => $coordinator->transition($enrollment->fresh(), $this->actor, null, [], 'saved-prerequisite-completion'))
+        ->toThrow(EnrollmentTransitionException::class, 'Required prerequisite subjects');
+    expect($enrollment->refresh()->current_step_key)->toBe('academic_verified');
+    expect($enrollment->terminal_outcome)->toBeNull();
+});

@@ -19,6 +19,7 @@ use App\Enrollment\EnrollmentTransitionEngine;
 use App\Enrollment\EnrollmentTuitionService;
 use App\Enrollment\EnrollmentWorkflowCoordinator;
 use App\Enrollment\Rules\ConfiguredEnrollmentRuleHandler;
+use App\Enrollment\Rules\EnrollmentPrerequisiteRule;
 use App\Enrollment\Rules\EnrollmentRecordLimitRule;
 use App\Enrollment\Rules\EnrollmentScheduleRule;
 use App\Enrollment\Strategies\ConfiguredAssignmentStrategy;
@@ -46,6 +47,7 @@ final class EnrollmentPolicyServiceProvider extends ServiceProvider
                 $registry->registerRule(new EnrollmentRecordLimitRule($key, $this->app->make(EnrollmentBillingService::class)));
             }
             $registry->registerRule(new EnrollmentScheduleRule);
+            $registry->registerRule($this->app->make(EnrollmentPrerequisiteRule::class));
             foreach ($this->stateActionCatalog() as $key => $label) {
                 $registry->registerAction(new EnrollmentStateActionHandler($key, $label, $studentSynchronization));
             }

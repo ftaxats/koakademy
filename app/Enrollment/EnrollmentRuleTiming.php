@@ -18,6 +18,6 @@ final class EnrollmentRuleTiming
 
     public static function usesSavedRecordsAtCompletion(string $handler): bool
     {
-        return in_array($handler, ['academics.maximum_assigned_units', 'billing.maximum_other_assessment_balance', 'academics.verified_schedule'], true);
+        return in_array($handler, ['academics.maximum_assigned_units', 'billing.maximum_other_assessment_balance', 'academics.verified_schedule', 'academics.verified_prerequisites'], true);
     }
 }
