@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Mcp\Tools;
 
+use App\Enrollment\EnrollmentFeeCalculator;
+use App\Enrollment\EnrollmentFeePolicy;
 use App\Enums\StudentStatus;
 use App\Mcp\Concerns\AuthorizesMcpRequests;
 use App\Models\Classes;
@@ -330,7 +332,10 @@ final class EnrollStudentSubjectTool extends Tool
         }
 
         $subjectEnrollment = DB::transaction(function () use ($enrollment, $subject, $classId, $classSection, $validated, $scopedKey, $user): SubjectEnrollment {
+            $fees = (new EnrollmentFeeCalculator)->subject($subject->toArray(), (new EnrollmentFeePolicy)->forEnrollment($enrollment), (bool) ($validated['is_modular'] ?? false));
             $created = SubjectEnrollment::query()->create([
+                'lecture_fee' => $fees['lecture_fee'],
+                'laboratory_fee' => $fees['laboratory_fee'],
                 'student_id' => $enrollment->student_id,
                 'subject_id' => $subject->id,
                 'enrollment_id' => $enrollment->id,

@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Mcp\Tools;
 
+use App\Enrollment\EnrollmentFeeCalculator;
+use App\Enrollment\EnrollmentFeePolicy;
 use App\Mcp\Concerns\AuthorizesMcpRequests;
 use App\Models\ClassEnrollment;
 use App\Models\EnrollmentWorkflowEvent;
@@ -214,6 +216,13 @@ final class ManageSubjectEnrollmentTool extends Tool
         $classId = $request->get('class_id') ? (int) $request->get('class_id') : null;
 
         $createdRecord = DB::transaction(function () use ($student, $enrollment, $subject, $classId, $school, $request, $actor): SubjectEnrollment {
+            $overrides = [];
+            foreach (['lecture_fee', 'laboratory_fee'] as $key) {
+                if ($request->has($key)) {
+                    $overrides[$key] = $request->get($key);
+                }
+            }
+            $fees = (new EnrollmentFeeCalculator)->subject($subject->toArray(), (new EnrollmentFeePolicy)->forEnrollment($enrollment), (bool) $request->get('is_modular', false), $overrides);
             $record = SubjectEnrollment::query()->create([
                 'student_id' => $student->id,
                 'enrollment_id' => $enrollment?->id ?? 0,
@@ -226,8 +235,8 @@ final class ManageSubjectEnrollmentTool extends Tool
                 'is_modular' => (bool) $request->get('is_modular', false),
                 'is_credited' => (bool) $request->get('is_credited', false),
                 'exclude_from_tuition' => (bool) $request->get('exclude_from_tuition', false),
-                'lecture_fee' => $request->get('lecture_fee') ? (float) $request->get('lecture_fee') : 0.0,
-                'laboratory_fee' => $request->get('laboratory_fee') ? (float) $request->get('laboratory_fee') : 0.0,
+                'lecture_fee' => $fees['lecture_fee'],
+                'laboratory_fee' => $fees['laboratory_fee'],
             ]);
 
             if ($classId !== null) {
