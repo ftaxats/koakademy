@@ -7,6 +7,7 @@ namespace App\Http\Controllers;
 use App\Filament\Auth\MultiFactor\SecurityAwareAppAuthentication;
 use App\Filament\Auth\MultiFactor\SecurityAwareEmailAuthentication;
 use App\Models\User;
+use App\Services\UserSecurityActivityService;
 use App\Support\ConfiguresPasskeysForRequest;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -72,6 +73,8 @@ final class TwoFactorChallengeController extends Controller
                 return $this->loginUser($request, $user);
             }
 
+            app(UserSecurityActivityService::class)->record($user, 'mfa_failed', 'failure');
+
             return back()->withErrors(['recovery_code' => 'The provided recovery code was invalid.']);
         }
 
@@ -92,6 +95,8 @@ final class TwoFactorChallengeController extends Controller
         if ($this->emailAuthentication->isEnabled($user) && $this->emailAuthentication->verifyCode($code)) {
             return $this->loginUser($request, $user);
         }
+
+        app(UserSecurityActivityService::class)->record($user, 'mfa_failed', 'failure');
 
         return back()->withErrors(['code' => 'The provided authentication code was invalid.']);
     }
@@ -177,6 +182,7 @@ final class TwoFactorChallengeController extends Controller
                 $user,
             );
 
+            app(UserSecurityActivityService::class)->record($user, 'mfa_passed', 'success');
             Auth::login($user, $request->session()->get('auth.2fa.remember', false));
             $request->session()->forget('auth.2fa.id');
             $request->session()->forget('auth.2fa.remember');
@@ -217,6 +223,7 @@ final class TwoFactorChallengeController extends Controller
 
     private function loginUser(Request $request, User $user)
     {
+        app(UserSecurityActivityService::class)->record($user, 'mfa_passed', 'success');
         Auth::login($user, $request->session()->get('auth.2fa.remember', false));
         $request->session()->forget('auth.2fa.id');
         $request->session()->forget('auth.2fa.remember');

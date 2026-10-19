@@ -5,6 +5,11 @@ declare(strict_types=1);
 namespace App\Providers;
 
 use App\Listeners\HandleExportFailure;
+use App\Listeners\RecordUserSecurityEvent;
+use Illuminate\Auth\Events\Failed;
+use Illuminate\Auth\Events\Login;
+use Illuminate\Auth\Events\Logout;
+use Illuminate\Auth\Events\PasswordReset;
 use Illuminate\Auth\Events\Registered;
 use Illuminate\Auth\Listeners\SendEmailVerificationNotification;
 use Illuminate\Foundation\Support\Providers\EventServiceProvider as ServiceProvider;
@@ -20,6 +25,10 @@ final class EventServiceProvider extends ServiceProvider
      */
     #[Override]
     protected $listen = [
+        Login::class => [\App\Listeners\EnforceUserLoginAccess::class, RecordUserSecurityEvent::class],
+        Logout::class => [RecordUserSecurityEvent::class],
+        Failed::class => [RecordUserSecurityEvent::class],
+        PasswordReset::class => [RecordUserSecurityEvent::class],
         Registered::class => [
             SendEmailVerificationNotification::class,
         ],

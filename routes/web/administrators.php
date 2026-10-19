@@ -377,6 +377,10 @@ Route::middleware(['auth', 'administrators.only'])
         Route::get('/users', [AdministratorUserManagementController::class, 'index'])->name('users.index');
         Route::get('/users/create', [AdministratorUserManagementController::class, 'create'])->name('users.create');
         Route::post('/users', [AdministratorUserManagementController::class, 'store'])->name('users.store');
+        Route::get('/users/{user}', [AdministratorUserManagementController::class, 'show'])->whereNumber('user')->name('users.show');
+        Route::put('/users/{user}/access', [App\Http\Controllers\AdministratorUserAccessController::class, 'update'])->name('users.access.update');
+        Route::delete('/users/{user}/sessions', [App\Http\Controllers\AdministratorUserAccessController::class, 'destroySessions'])->name('users.sessions.destroy');
+        Route::delete('/users/{user}/tokens/{token}', [App\Http\Controllers\AdministratorUserAccessController::class, 'destroyToken'])->whereNumber('token')->name('users.tokens.destroy');
         Route::get('/users/{user}/edit', [AdministratorUserManagementController::class, 'edit'])->name('users.edit');
         Route::put('/users/{user}', [AdministratorUserManagementController::class, 'update'])->name('users.update');
         Route::delete('/users/{user}', [AdministratorUserManagementController::class, 'destroy'])->name('users.destroy');

@@ -146,8 +146,8 @@ export function DataTable<TData, TValue>({ columns, data, options }: DataTablePr
                                 </SelectTrigger>
                                 <SelectContent>
                                     <SelectItem value="all">All 2FA states</SelectItem>
-                                    <SelectItem value="enabled">Protected</SelectItem>
-                                    <SelectItem value="disabled">Off</SelectItem>
+                                    <SelectItem value="enabled">Configured</SelectItem>
+                                    <SelectItem value="disabled">Not configured or off</SelectItem>
                                 </SelectContent>
                             </Select>
                         )}

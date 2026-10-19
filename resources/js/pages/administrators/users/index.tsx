@@ -25,6 +25,7 @@ import { OnlineUsersWidget } from "./online-users-widget";
 declare const route: (name: string, ...parameters: unknown[]) => string;
 
 interface PageProps {
+    can_create: boolean;
     users: {
         data: ExtendedUser[];
         total: number;
@@ -53,7 +54,7 @@ interface PageProps {
 
 type ActionType = "delete" | "impersonate" | "verify" | "reset_password";
 
-export default function UserIndex({ users, analytics, online_user_ids, options, user }: PageProps) {
+export default function UserIndex({ users, analytics, online_user_ids, options, user, can_create }: PageProps) {
     const presence = useOnlinePresence();
     const liveOnlineUserIds = presence.isReady ? presence.onlineUserIds : online_user_ids;
     const liveAnalytics = useMemo(
@@ -136,12 +137,12 @@ export default function UserIndex({ users, analytics, online_user_ids, options, 
                         <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">User management</h1>
                         <p className="text-muted-foreground max-w-2xl text-sm">Review accounts, access levels, and organization assignments.</p>
                     </div>
-                    <Button asChild className="w-full sm:w-auto">
-                        <Link href={route("administrators.users.create")}>
+                    {can_create && (
+                        <Button render={<Link href={route("administrators.users.create")} />} nativeButton={false} className="w-full sm:w-auto">
                             <Plus aria-hidden="true" />
                             Add user
-                        </Link>
-                    </Button>
+                        </Button>
+                    )}
                 </header>
 
                 <UserAnalytics stats={liveAnalytics} />
@@ -202,7 +203,7 @@ export default function UserIndex({ users, analytics, online_user_ids, options, 
                                 {actionState.type === "delete" && (
                                     <>
                                         Delete <span className="text-foreground font-medium">{actionState.userName}</span>? This removes the account
-                                        and its associated data.
+                                        from the active directory. Related records are retained.
                                     </>
                                 )}
                                 {actionState.type === "impersonate" && (
