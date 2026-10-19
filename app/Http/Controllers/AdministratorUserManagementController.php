@@ -11,6 +11,7 @@ use App\Models\Department;
 use App\Models\School;
 use App\Models\User;
 use App\Services\OnlineUserPresenceService;
+use App\Services\UserSecurityActivityService;
 use Carbon\CarbonPeriod;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -22,6 +23,7 @@ use Illuminate\Support\Facades\Password;
 use Illuminate\Support\Facades\Schema;
 use Inertia\Inertia;
 use Inertia\Response;
+use Spatie\Activitylog\Models\Activity;
 use Spatie\Permission\Models\Role;
 
 final class AdministratorUserManagementController extends Controller
@@ -33,7 +35,7 @@ final class AdministratorUserManagementController extends Controller
         $this->authorizeUserManagementAccess();
 
         $query = User::query()
-            ->with(['school', 'department', 'roles'])
+            ->with(['school', 'department', 'roles'])->withCount('passkeys')
             ->when($request->search, function ($query, $search): void {
                 $query->where(function ($q) use ($search): void {
                     $q->where('name', 'like', "%{$search}%")
@@ -65,13 +67,25 @@ final class AdministratorUserManagementController extends Controller
             });
 
         // Sorting
+        $request->validate(['sort' => ['sometimes', 'in:name,email,role,created_at,last_login_at,last_active_at'], 'direction' => ['sometimes', 'in:asc,desc']]);
         $sortField = $request->input('sort', 'created_at');
         $sortDirection = $request->input('direction', 'desc');
         $query->orderBy($sortField, $sortDirection);
 
-        // Get all users for client-side pagination with TanStack Table
-        $users = $query->get()->each(function (User $user): void {
+        $permissions = [
+            'view' => $this->userHasAnyPermission(Auth::user(), 'View:User'),
+            'update' => $this->userHasAnyPermission(Auth::user(), 'Update:User'),
+            'delete' => $this->userHasAnyPermission(Auth::user(), 'Delete:User'),
+        ];
+        // Get all users for client-side pagination with TanStack Table.
+        $users = $query->get()->each(function (User $user) use ($permissions): void {
             $user->setAttribute('last_login_at', $user->getAttribute('last_login_at'));
+            $user->setAttribute('mfa_configured', filled($user->app_authentication_secret) || $user->hasEmailAuthentication() || $user->passkeys_count > 0);
+            $user->setAttribute('capabilities', [
+                'view' => $permissions['view'],
+                'update' => $permissions['update'] && Auth::user()->hasHigherAuthorityThan($user),
+                'delete' => $permissions['delete'] && Auth::user()->hasHigherAuthorityThan($user),
+            ]);
             $user->setAttribute('security_two_factor_enabled', (bool) ($user->getAttribute('security_two_factor_enabled') ?? true));
         });
 
@@ -83,6 +97,7 @@ final class AdministratorUserManagementController extends Controller
                 'data' => $users,
                 'total' => $users->count(),
             ],
+            'can_create' => $this->userHasAnyPermission(Auth::user(), 'Create:User'),
             'analytics' => $this->getUserAnalytics($onlineUsers),
             'online_user_ids' => $onlineUserIds,
             'filters' => $request->all(['search', 'role', 'school_id', 'department_id', 'email_verified', 'trashed', 'sort', 'direction']),
@@ -95,9 +110,60 @@ final class AdministratorUserManagementController extends Controller
         ]);
     }
 
+    public function show(Request $request, User $user): Response
+    {
+        $this->authorizeUserManagementAccess('View:User');
+        $request->validate([
+            'event' => ['nullable', 'string', 'max:80'],
+            'outcome' => ['nullable', 'in:success,failure'],
+        ]);
+        $user->load(['school', 'department', 'roles']);
+        $logs = Activity::query()->inLog('user-security')->forSubject($user)
+            ->when($request->input('event'), fn ($query, $event) => $query->where('event', $event))
+            ->when($request->input('outcome'), fn ($query, $outcome) => $query->where('properties->outcome', $outcome))
+            ->with('causer')->latest('id')->paginate(20)->withQueryString()
+            ->through(fn (Activity $activity): array => [
+                'id' => $activity->id,
+                'event' => $activity->event,
+                'outcome' => $activity->getProperty('outcome'),
+                'browser' => $activity->getProperty('browser'),
+                'platform' => $activity->getProperty('platform'),
+                'actor' => $activity->causer?->name ?? 'System',
+                'reason' => $activity->getProperty('reason'),
+                'created_at' => $activity->created_at?->toIso8601String(),
+            ]);
+
+        return Inertia::render('administrators/users/show', [
+            'account' => [
+                'id' => $user->id, 'name' => $user->name, 'email' => $user->email,
+                'role' => $user->role->getLabel(),
+                'school' => $user->school?->name, 'department' => $user->department?->name,
+                'roles' => $user->roles->pluck('name'),
+                'email_verified_at' => $user->email_verified_at?->toIso8601String(),
+                'created_at' => $user->created_at?->toIso8601String(),
+                'last_login_at' => $user->last_login_at?->toIso8601String(),
+                'last_active_at' => $user->last_active_at?->toIso8601String(),
+                'recently_active' => $user->last_active_at?->gte(now()->subMinutes(15)) ?? false,
+                'login_challenges_enabled' => (bool) $user->security_two_factor_enabled,
+                'authenticator_configured' => filled($user->app_authentication_secret),
+                'email_authentication' => $user->hasEmailAuthentication(),
+                'passkeys_count' => $user->passkeys()->count(),
+                'suspended_at' => $user->suspended_at?->toIso8601String(),
+                'suspension_reason' => $user->suspension_reason,
+            ],
+            'can_manage_access' => $this->userHasAnyPermission(Auth::user(), 'Update:User') && Auth::user()->hasHigherAuthorityThan($user) && ! $request->session()->has('impersonator_id'),
+            'sessions' => app(\App\Services\AdministratorUserAccessService::class)->sessions($user),
+            'tokens' => $user->tokens()->latest('id')->limit(100)->get(['id', 'name', 'abilities', 'last_used_at', 'expires_at'])->toArray(),
+            'logs' => $logs,
+            'filters' => $request->only('event', 'outcome'),
+            'event_options' => Activity::query()->inLog('user-security')->forSubject($user)->distinct()->pluck('event'),
+            'user' => $this->getUserProps(),
+        ]);
+    }
+
     public function create(): Response
     {
-        $this->authorizeUserManagementAccess();
+        $this->authorizeUserManagementAccess('Create:User');
 
         return Inertia::render('administrators/users/create', [
             'roles' => $this->getAvailableRoles(),
@@ -110,9 +176,10 @@ final class AdministratorUserManagementController extends Controller
 
     public function store(StoreUserRequest $request): RedirectResponse
     {
-        $this->authorizeUserManagementAccess();
+        $this->authorizeUserManagementAccess('Create:User');
 
         $data = $request->validated();
+        $this->authorizeRoleAssignments($data);
         $data['password'] = Hash::make($data['password']);
 
         // Handle roles separately
@@ -125,6 +192,8 @@ final class AdministratorUserManagementController extends Controller
             $user->roles()->sync($permissionRoles);
         }
 
+        app(UserSecurityActivityService::class)->record($user, 'account_created', 'success', Auth::user());
+
         return redirect()->route('administrators.users.index')
             ->with('flash', [
                 'type' => 'success',
@@ -134,7 +203,8 @@ final class AdministratorUserManagementController extends Controller
 
     public function edit(User $user): Response
     {
-        $this->authorizeUserManagementAccess();
+        $this->authorizeUserManagementAccess('Update:User');
+        abort_unless(Auth::user()->hasHigherAuthorityThan($user), 403);
 
         $user->load(['roles']);
 
@@ -150,9 +220,11 @@ final class AdministratorUserManagementController extends Controller
 
     public function update(UpdateUserRequest $request, User $user): RedirectResponse
     {
-        $this->authorizeUserManagementAccess();
+        $this->authorizeUserManagementAccess('Update:User');
+        abort_unless(Auth::user()->hasHigherAuthorityThan($user), 403);
 
         $data = $request->validated();
+        $this->authorizeRoleAssignments($data);
 
         if (empty($data['password'])) {
             unset($data['password']);
@@ -169,6 +241,8 @@ final class AdministratorUserManagementController extends Controller
             $user->roles()->sync($permissionRoles);
         }
 
+        app(UserSecurityActivityService::class)->record($user, 'account_updated', 'success', Auth::user());
+
         return redirect()->route('administrators.users.index')
             ->with('flash', [
                 'type' => 'success',
@@ -178,10 +252,12 @@ final class AdministratorUserManagementController extends Controller
 
     public function destroy(User $user): RedirectResponse
     {
-        $this->authorizeUserManagementAccess();
+        $this->authorizeUserManagementAccess('Delete:User');
+        abort_unless(Auth::user()->hasHigherAuthorityThan($user), 403);
 
-        // Authorization check logic could go here
+        abort_if(Auth::id() === $user->id, 403);
         $user->delete();
+        app(UserSecurityActivityService::class)->record($user, 'account_deleted', 'success', Auth::user());
 
         return redirect()->back()
             ->with('flash', [
@@ -192,21 +268,17 @@ final class AdministratorUserManagementController extends Controller
 
     public function impersonate(User $user): RedirectResponse
     {
-        $this->authorizeUserManagementAccess();
+        $this->authorizeUserManagementAccess('Update:User');
 
         /** @var User $currentUser */
         $currentUser = Auth::user();
 
-        if (! $currentUser->hasHigherAuthorityThan($user) && ! $currentUser->isSuperAdmin()) {
+        if (! $currentUser->hasHigherAuthorityThan($user)) {
             abort(403, 'You cannot impersonate this user.');
         }
 
-        // Basic impersonation logic
-        // Ideally use a library like lab404/laravel-impersonate if available
-        // For now, using session-based manual implementation or just direct login if no package
-
-        // Check if using stechstudio/filament-impersonate (which uses STS\FilamentImpersonate)
-        // Since we are in a standard controller, we can use Auth::login
+        request()->attributes->set('user_security_impersonation', true);
+        app(UserSecurityActivityService::class)->record($user, 'impersonation_started', 'success', $currentUser);
 
         // Save original ID
         session()->put('impersonator_id', $currentUser->id);
@@ -229,6 +301,9 @@ final class AdministratorUserManagementController extends Controller
         $impersonatorId = session('impersonator_id');
 
         if ($impersonatorId) {
+            request()->attributes->set('user_security_impersonation', true);
+            $original = User::findOrFail($impersonatorId);
+            app(UserSecurityActivityService::class)->record(Auth::user(), 'impersonation_stopped', 'success', $original);
             Auth::loginUsingId($impersonatorId);
             session()->forget('impersonator_id');
 
@@ -244,8 +319,10 @@ final class AdministratorUserManagementController extends Controller
 
     public function verifyEmail(User $user): RedirectResponse
     {
-        $this->authorizeUserManagementAccess();
+        $this->authorizeUserManagementAccess('Update:User');
+        abort_unless(Auth::user()->hasHigherAuthorityThan($user), 403);
 
+        app(UserSecurityActivityService::class)->record($user, 'email_verified_by_admin', 'success', Auth::user());
         $user->email_verified_at = now();
         $user->save();
 
@@ -257,9 +334,11 @@ final class AdministratorUserManagementController extends Controller
 
     public function resetPassword(User $user): RedirectResponse
     {
-        $this->authorizeUserManagementAccess();
+        $this->authorizeUserManagementAccess('Update:User');
+        abort_unless(Auth::user()->hasHigherAuthorityThan($user), 403);
 
         $status = Password::sendResetLink(['email' => $user->email]);
+        app(UserSecurityActivityService::class)->record($user, 'password_reset_link_requested', $status === Password::RESET_LINK_SENT ? 'success' : 'failure', Auth::user());
 
         return redirect()->back()->with('flash', [
             'type' => $status === Password::RESET_LINK_SENT ? 'success' : 'error',
@@ -522,6 +601,25 @@ final class AdministratorUserManagementController extends Controller
         return round((($current - $previous) / $previous) * 100, 1);
     }
 
+    /** @param array<string, mixed> $data */
+    private function authorizeRoleAssignments(array $data): void
+    {
+        $actor = Auth::user();
+        abort_unless(in_array(UserRole::from($data['role']), $actor->role->getManageableRoles(), true), 403);
+        foreach (Role::with('permissions')->whereIn('id', $data['roles'] ?? [])->get() as $assignedRole) {
+            $role = UserRole::tryFrom($assignedRole->name);
+            if ($role === null) {
+                $role = collect(UserRole::cases())->first(fn (UserRole $candidate): bool => $candidate->getLabel() === $assignedRole->name);
+            }
+            if ($role !== null) {
+                abort_unless(in_array($role, $actor->role->getManageableRoles(), true), 403);
+            }
+            foreach ($assignedRole->permissions as $permission) {
+                abort_unless($this->userHasAnyPermission($actor, $permission->name), 403);
+            }
+        }
+    }
+
     private function getAvailableRoles(): array
     {
         /** @var User|null $currentUser */
@@ -560,10 +658,10 @@ final class AdministratorUserManagementController extends Controller
         ];
     }
 
-    private function authorizeUserManagementAccess(): void
+    private function authorizeUserManagementAccess(string $permission = 'ViewAny:User'): void
     {
         $user = Auth::user();
 
-        $this->abortUnlessUserHasAnyPermission($user instanceof User ? $user : null, 'ViewAny:User');
+        $this->abortUnlessUserHasAnyPermission($user instanceof User ? $user : null, $permission);
     }
 }

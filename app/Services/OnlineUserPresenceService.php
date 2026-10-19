@@ -27,6 +27,14 @@ final class OnlineUserPresenceService
 
     public function recordActivity(int $userId): void
     {
+        // Conditional write caps durable activity updates at once per minute per user.
+        DB::table('users')->where('id', $userId)
+            ->where(function ($query): void {
+                $query->whereNull('last_active_at')
+                    ->orWhere('last_active_at', '<=', now()->subMinute());
+            })
+            ->update(['last_active_at' => now()]);
+
         if (config('session.driver') !== 'redis') {
             return;
         }

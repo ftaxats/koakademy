@@ -34,12 +34,18 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->web(append: [
             App\Http\Middleware\ResetFeatureAccessState::class,
             App\Http\Middleware\EnsureSystemIsSetup::class,
+            App\Http\Middleware\EnsureUserAccountAccess::class,
             HandleInertiaRequests::class,
             App\Http\Middleware\OnlineUserTrackingMiddleware::class,
             SetTenantContext::class,
         ]);
 
-        $middleware->api(prepend: [App\Http\Middleware\ResetFeatureAccessState::class]);
+        $middleware->api(prepend: [App\Http\Middleware\ResetFeatureAccessState::class], append: [App\Http\Middleware\EnsureUserAccountAccess::class]);
+
+        $middleware->appendToPriorityList(
+            Illuminate\Contracts\Auth\Middleware\AuthenticatesRequests::class,
+            App\Http\Middleware\EnsureUserAccountAccess::class,
+        );
 
         $middleware->alias([
             'faculty.verified' => FacultyIdValidationMiddleware::class,

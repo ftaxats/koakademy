@@ -14,6 +14,8 @@ use App\Http\Requests\Api\V1\UpdateMobilePasswordRequest;
 use App\Http\Resources\Api\V1\UserResource;
 use App\Models\User;
 use App\Notifications\FilamentEmailAuthenticationCode;
+use App\Services\OnlineUserPresenceService;
+use App\Services\UserSecurityActivityService;
 use Illuminate\Auth\Events\PasswordReset;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Cache;
@@ -32,12 +34,18 @@ final class AuthTokenController extends Controller
         $user = User::query()->where('email', mb_strtolower((string) $request->validated('email')))->first();
 
         if (! $user instanceof User || ! Hash::check((string) $request->validated('password'), $user->password)) {
+            if ($user instanceof User) {
+                app(UserSecurityActivityService::class)->record($user, 'sign_in_failed', 'failure', guard: 'sanctum');
+            }
+
             return response()->json([
                 'error' => true,
                 'message' => 'The provided credentials are invalid.',
                 'code' => 'AUTHENTICATION_FAILED',
             ], 401);
         }
+
+        abort_if($user->suspended_at !== null, 403, 'Account access is unavailable.');
 
         if (! $user->isStudentRole() && ! $user->isFaculty()) {
             return response()->json([
@@ -115,6 +123,8 @@ final class AuthTokenController extends Controller
         }
 
         if (! $verified) {
+            app(UserSecurityActivityService::class)->record($user, 'mfa_failed', 'failure', guard: 'sanctum');
+
             return response()->json([
                 'error' => true,
                 'message' => 'The authentication code is invalid or expired.',
@@ -122,6 +132,7 @@ final class AuthTokenController extends Controller
             ], 422);
         }
 
+        app(UserSecurityActivityService::class)->record($user, 'mfa_passed', 'success', guard: 'sanctum');
         Cache::forget(self::CHALLENGE_PREFIX.$challengeId);
         Cache::forget(self::CHALLENGE_PREFIX.$challengeId.':code');
 
@@ -136,6 +147,7 @@ final class AuthTokenController extends Controller
     public function logout(): JsonResponse
     {
         request()->user()?->currentAccessToken()?->delete();
+        app(UserSecurityActivityService::class)->record(request()->user(), 'signed_out', 'success', guard: 'sanctum');
 
         return response()->json(['message' => 'The device was signed out.']);
     }
@@ -218,11 +230,15 @@ final class AuthTokenController extends Controller
 
     private function tokenResponse(User $user, string $deviceName): JsonResponse
     {
+        abort_if($user->fresh()->suspended_at !== null, 403, 'Account access is unavailable.');
         $token = $user->createToken(
             $deviceName !== '' ? $deviceName : 'Flutter mobile app',
             [config('api.abilities.read'), config('api.abilities.write')],
             now()->addMinutes((int) config('api.token_expiration', 43200)),
         );
+
+        app(UserSecurityActivityService::class)->signedIn($user, 'sanctum');
+        app(OnlineUserPresenceService::class)->recordActivity($user->id);
 
         return response()->json([
             'message' => 'Authenticated successfully.',

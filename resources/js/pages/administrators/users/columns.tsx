@@ -12,6 +12,7 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { show } from "@/routes/administrators/users";
 import { Link } from "@inertiajs/react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { CalendarDays, FileEdit, KeyRound, MoreHorizontal, ShieldCheck, Trash2, UserCog } from "lucide-react";
@@ -49,7 +50,7 @@ function formatDate(value: string | null | undefined): string {
 
 function formatDateTime(value: string | null | undefined): string {
     if (!value) {
-        return "Never";
+        return "Not recorded";
     }
 
     const date = new Date(value);
@@ -68,6 +69,9 @@ export interface ExtendedUser {
     roles?: { id: number; name: string }[];
     email_verified_at: string | null;
     security_two_factor_enabled?: boolean | null;
+    mfa_configured?: boolean;
+    capabilities: { view: boolean; update: boolean; delete: boolean };
+    last_active_at?: string | null;
     last_login_at?: string | null;
     created_at: string | null;
     deleted_at: string | null;
@@ -196,7 +200,7 @@ export const createColumns = ({ onAction, onlineUserIds }: ColumnsProps): Column
         accessorKey: "security_two_factor_enabled",
         header: ({ column }) => <DataTableColumnHeader column={column} title="2FA" />,
         cell: ({ row }) => {
-            const protectedAccount = isEnabled(row.original.security_two_factor_enabled);
+            const protectedAccount = isEnabled(row.original.security_two_factor_enabled) && !!row.original.mfa_configured;
 
             return (
                 <Badge
@@ -204,12 +208,12 @@ export const createColumns = ({ onAction, onlineUserIds }: ColumnsProps): Column
                     className={protectedAccount ? "text-emerald-700 dark:text-emerald-400" : "text-muted-foreground"}
                 >
                     <ShieldCheck aria-hidden="true" />
-                    {protectedAccount ? "Protected" : "Off"}
+                    {protectedAccount ? "Configured" : "Not configured or off"}
                 </Badge>
             );
         },
         filterFn: (row, id, value) => {
-            const protectedAccount = isEnabled(row.getValue(id));
+            const protectedAccount = isEnabled(row.getValue(id)) && !!row.original.mfa_configured;
 
             if (value === "enabled") {
                 return protectedAccount;
@@ -225,20 +229,13 @@ export const createColumns = ({ onAction, onlineUserIds }: ColumnsProps): Column
     {
         accessorKey: "last_login_at",
         header: ({ column }) => <DataTableColumnHeader column={column} title="Last sign-in" />,
-        cell: ({ row }) => {
-            const user = row.original;
-            const isOnline = onlineUserIds.includes(user.id);
-
-            return (
-                <div className="flex min-w-32 flex-col gap-0.5 text-sm">
-                    <span className={isOnline ? "font-medium text-emerald-700 dark:text-emerald-400" : "text-foreground"}>
-                        {isOnline ? "Online now" : formatDateTime(user.last_login_at)}
-                    </span>
-                    <span className="text-muted-foreground text-xs">{isOnline ? "Active session" : "Account activity"}</span>
-                </div>
-            );
-        },
+        cell: ({ row }) => <span className="text-sm">{formatDateTime(row.original.last_login_at)}</span>,
         sortUndefined: "last",
+    },
+    {
+        accessorKey: "last_active_at",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Last active" />,
+        cell: ({ row }) => <span className="text-sm">{formatDateTime(row.original.last_active_at)}</span>,
     },
     {
         accessorKey: "created_at",
@@ -264,29 +261,35 @@ export const createColumns = ({ onAction, onlineUserIds }: ColumnsProps): Column
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="w-56">
                         <DropdownMenuLabel className="text-muted-foreground text-xs font-normal">Manage {user.name}</DropdownMenuLabel>
-                        <DropdownMenuItem asChild>
+                        {user.capabilities.view && (
+                            <DropdownMenuItem asChild>
+                                <Link href={show.url(user.id)}>View user</Link>
+                            </DropdownMenuItem>
+                        )}
+                        <DropdownMenuItem disabled={!user.capabilities.update} asChild>
                             <Link href={route("administrators.users.edit", user.id)} className="flex items-center">
                                 <FileEdit aria-hidden="true" className="text-muted-foreground mr-2 size-4" />
                                 Edit details
                             </Link>
                         </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => onAction("impersonate", user.id, user.name)}>
+                        <DropdownMenuItem disabled={!user.capabilities.update} onClick={() => onAction("impersonate", user.id, user.name)}>
                             <UserCog aria-hidden="true" className="mr-2 size-4 text-amber-600" />
                             Impersonate user
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         {!user.email_verified_at ? (
-                            <DropdownMenuItem onClick={() => onAction("verify", user.id, user.name)}>
+                            <DropdownMenuItem disabled={!user.capabilities.update} onClick={() => onAction("verify", user.id, user.name)}>
                                 <ShieldCheck aria-hidden="true" className="mr-2 size-4 text-emerald-600" />
                                 Mark email verified
                             </DropdownMenuItem>
                         ) : null}
-                        <DropdownMenuItem onClick={() => onAction("reset_password", user.id, user.name)}>
+                        <DropdownMenuItem disabled={!user.capabilities.update} onClick={() => onAction("reset_password", user.id, user.name)}>
                             <KeyRound aria-hidden="true" className="mr-2 size-4 text-blue-600" />
                             Send password reset
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
+                            disabled={!user.capabilities.delete}
                             className="text-destructive focus:bg-destructive/10 focus:text-destructive"
                             onClick={() => onAction("delete", user.id, user.name)}
                         >
