@@ -10,6 +10,7 @@ use App\Http\Controllers\FacultyClassController;
 use App\Http\Controllers\FacultyClassShsStudentController;
 use App\Http\Controllers\FacultyClassStudentSearchController;
 use App\Http\Controllers\FacultyGlobalSearchController;
+use App\Http\Controllers\FacultyGlobalSearchResultsController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\StudentInfoController;
 use App\Http\Controllers\UserSettingController;
@@ -389,8 +390,15 @@ Route::middleware(['auth', 'faculty.verified', 'faculty.only', 'ensure.feature']
         Route::get('/classes/{class}/attendance/export', [FacultyClassController::class, 'exportAttendance'])->name('classes.attendance.export');
 
         // Global Search
-        Route::get('/search/classes', [FacultyGlobalSearchController::class, 'classes'])->name('faculty.search.classes');
-        Route::get('/search/students', [FacultyGlobalSearchController::class, 'students'])->name('faculty.search.students');
+        Route::get('/search/classes', [FacultyGlobalSearchController::class, 'classes'])
+            ->middleware('throttle:global-search')
+            ->name('search.classes');
+        Route::get('/search/students', [FacultyGlobalSearchController::class, 'students'])
+            ->middleware('throttle:global-search')
+            ->name('search.students');
+        Route::get('/search/results', FacultyGlobalSearchResultsController::class)
+            ->middleware('throttle:global-search')
+            ->name('search.results');
 
         // Students (List)
         Route::get('/students', function () {
