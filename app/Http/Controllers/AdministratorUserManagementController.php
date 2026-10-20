@@ -83,6 +83,7 @@ final class AdministratorUserManagementController extends Controller
             $user->setAttribute('mfa_configured', filled($user->app_authentication_secret) || $user->hasEmailAuthentication() || $user->passkeys_count > 0);
             $user->setAttribute('capabilities', [
                 'view' => $permissions['view'],
+                'manage_access' => $permissions['update'] && Auth::user()->hasHigherAuthorityThan($user) && ! request()->session()->has('impersonator_id'),
                 'update' => $permissions['update'] && Auth::user()->hasHigherAuthorityThan($user),
                 'delete' => $permissions['delete'] && Auth::user()->hasHigherAuthorityThan($user),
             ]);

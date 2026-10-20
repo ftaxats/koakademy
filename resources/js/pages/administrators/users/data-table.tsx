@@ -34,8 +34,7 @@ interface DataTableProps<TData, TValue> {
 }
 
 export function DataTable<TData, TValue>({ columns, data, options }: DataTableProps<TData, TValue>) {
-    const [rowSelection, setRowSelection] = React.useState({});
-    const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({});
+    const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({ created_at: false, last_login_at: false, department: false });
     const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
     const [sorting, setSorting] = React.useState<SortingState>([]);
     const [pagination, setPagination] = React.useState({
@@ -49,12 +48,9 @@ export function DataTable<TData, TValue>({ columns, data, options }: DataTablePr
         state: {
             sorting,
             columnVisibility,
-            rowSelection,
             columnFilters,
             pagination,
         },
-        enableRowSelection: true,
-        onRowSelectionChange: setRowSelection,
         onSortingChange: setSorting,
         onColumnFiltersChange: setColumnFilters,
         onColumnVisibilityChange: setColumnVisibility,
@@ -78,11 +74,11 @@ export function DataTable<TData, TValue>({ columns, data, options }: DataTablePr
                     </label>
                     <Input
                         id="users-search"
-                        placeholder="Search by name or email..."
+                        placeholder="Find a user by name or email…"
                         aria-label="Search users by name or email"
                         value={(table.getColumn("name")?.getFilterValue() as string) ?? ""}
                         onChange={(event) => table.getColumn("name")?.setFilterValue(event.target.value)}
-                        className="h-10 w-full sm:w-[280px]"
+                        className="h-10 w-full sm:max-w-sm"
                     />
                     <div className="flex flex-wrap gap-2">
                         {table.getColumn("role") && options?.roles && (
@@ -121,10 +117,10 @@ export function DataTable<TData, TValue>({ columns, data, options }: DataTablePr
                                 }}
                             >
                                 <SelectTrigger className="h-10 w-[150px]">
-                                    <SelectValue placeholder="Status" />
+                                    <SelectValue placeholder="Email" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    <SelectItem value="all">All Status</SelectItem>
+                                    <SelectItem value="all">All email states</SelectItem>
                                     <SelectItem value="verified">Verified</SelectItem>
                                     <SelectItem value="unverified">Unverified</SelectItem>
                                 </SelectContent>
@@ -150,6 +146,34 @@ export function DataTable<TData, TValue>({ columns, data, options }: DataTablePr
                                     <SelectItem value="disabled">Not configured or off</SelectItem>
                                 </SelectContent>
                             </Select>
+                        )}
+                        {(
+                            [
+                                ["school", "schools", "All schools"],
+                                ["department", "departments", "All departments"],
+                            ] as const
+                        ).map(
+                            ([id, source, title]) =>
+                                options?.[source] && (
+                                    <Select
+                                        key={id}
+                                        value={(table.getColumn(id)?.getFilterValue() as string) || "all"}
+                                        onValueChange={(value) => table.getColumn(id)?.setFilterValue(value === "all" ? undefined : value)}
+                                    >
+                                        <SelectTrigger aria-label={title} className="h-10 w-40">
+                                            <SelectValue placeholder={title} />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="all">{title}</SelectItem>
+                                            <SelectItem value="unassigned">Unassigned</SelectItem>
+                                            {options[source]?.map((option) => (
+                                                <SelectItem key={option.id} value={String(option.id)}>
+                                                    {option.name}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                ),
                         )}
                         {isFiltered && (
                             <Button variant="ghost" onClick={() => table.resetColumnFilters()} className="h-10 px-3">
@@ -183,7 +207,7 @@ export function DataTable<TData, TValue>({ columns, data, options }: DataTablePr
                     <TableBody>
                         {table.getRowModel().rows?.length ? (
                             table.getRowModel().rows.map((row) => (
-                                <TableRow key={row.id} data-state={row.getIsSelected() && "selected"} className="group">
+                                <TableRow key={row.id} data-state={row.getIsSelected() && "selected"} className="group hover:bg-muted/30">
                                     {row.getVisibleCells().map((cell) => (
                                         <TableCell key={cell.id} className="py-3">
                                             {flexRender(cell.column.columnDef.cell, cell.getContext())}
@@ -195,7 +219,9 @@ export function DataTable<TData, TValue>({ columns, data, options }: DataTablePr
                             <TableRow>
                                 <TableCell colSpan={columns.length} className="h-28 text-center">
                                     <p className="font-medium">No users found</p>
-                                    <p className="text-muted-foreground mt-1 text-sm">Try a different search or clear the active filters.</p>
+                                    <p className="text-muted-foreground mt-1 text-sm">
+                                        Try a different search, clear filters, or choose another directory view.
+                                    </p>
                                 </TableCell>
                             </TableRow>
                         )}

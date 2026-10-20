@@ -10,9 +10,7 @@ interface DataTablePaginationProps<TData> {
 export function DataTablePagination<TData>({ table }: DataTablePaginationProps<TData>) {
     return (
         <div className="flex flex-col gap-3 px-1 sm:flex-row sm:items-center sm:justify-between">
-            <div className="text-muted-foreground text-sm">
-                {table.getFilteredSelectedRowModel().rows.length} of {table.getFilteredRowModel().rows.length} selected
-            </div>
+            <div className="text-muted-foreground text-sm">{table.getFilteredRowModel().rows.length} matching accounts</div>
             <div className="flex flex-wrap items-center gap-3 sm:gap-6 lg:gap-8">
                 <div className="flex items-center gap-2">
                     <p className="text-sm font-medium">Rows per page</p>
@@ -35,7 +33,7 @@ export function DataTablePagination<TData>({ table }: DataTablePaginationProps<T
                     </Select>
                 </div>
                 <div className="flex items-center justify-center text-sm font-medium tabular-nums">
-                    Page {table.getState().pagination.pageIndex + 1} of {table.getPageCount()}
+                    Page {table.getState().pagination.pageIndex + 1} of {Math.max(1, table.getPageCount())}
                 </div>
                 <div className="flex items-center gap-1">
                     <Button
