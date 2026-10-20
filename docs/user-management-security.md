@@ -30,7 +30,7 @@ Activity logging follows `activitylog.enabled` and existing activity-log retenti
 
 ## Deployment and checks
 
-Run `php artisan migrate` before serving updated code. Build frontend assets with `npm run build`; rebuild cached routes/events using the installation's normal deployment process. No permission grants are silently added: assign existing permissions to the intended support/admin roles.
+Run `php artisan migrate` before serving updated code. Build frontend assets with `npm run build`; rebuild cached routes/events using the installation's normal deployment process. The directory-view upgrade migration grants `View:User` to existing web roles and direct permission holders with `ViewAny:User`. It does not grant editing or destructive permissions. New roles still need explicit permission assignment.
 
 Focused checks:
 

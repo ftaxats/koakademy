@@ -73,7 +73,8 @@ async function directory(run, width = 1440) {
 }
 test("directory exposes account details, access actions and review queues", { timeout: 120000 }, async () =>
     directory(async (page) => {
-        assert.ok(await page.$('a[href$="/users/1"]'));
+        assert.equal(await page.$eval('a[href$="/users/1"]', (el) => el.textContent), "Mika Santos");
+        assert.ok(await page.$('a[aria-label="View details for Mika Santos"][href$="/users/1"]'));
         await page.click('[aria-label="Actions for Mika Santos"]');
         await page.waitForSelector('[role="menu"]');
         const button = await page.waitForFunction(() =>

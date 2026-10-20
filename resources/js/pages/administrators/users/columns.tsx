@@ -251,64 +251,75 @@ export const createColumns = ({ onAction, onlineUserIds }: ColumnsProps): Column
             const user = row.original;
 
             return (
-                <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="size-10" aria-label={`Actions for ${user.name}`}>
-                            <MoreHorizontal aria-hidden="true" />
-                        </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-56">
-                        <DropdownMenuLabel className="text-muted-foreground text-xs font-normal">Manage {user.name}</DropdownMenuLabel>
-                        {user.capabilities.view && (
-                            <DropdownMenuItem asChild>
-                                <Link href={show.url(user.id)}>View user</Link>
+                <div className="flex items-center justify-end gap-2">
+                    {user.capabilities.view && (
+                        <Link
+                            href={show.url(user.id)}
+                            aria-label={`View details for ${user.name}`}
+                            className="hover:bg-muted rounded-md border px-3 py-2 text-sm font-medium focus-visible:outline-2"
+                        >
+                            View
+                        </Link>
+                    )}
+                    <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" className="size-10" aria-label={`Actions for ${user.name}`}>
+                                <MoreHorizontal aria-hidden="true" />
+                            </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-56">
+                            <DropdownMenuLabel className="text-muted-foreground text-xs font-normal">Manage {user.name}</DropdownMenuLabel>
+                            {user.capabilities.view && (
+                                <DropdownMenuItem asChild>
+                                    <Link href={show.url(user.id)}>View user</Link>
+                                </DropdownMenuItem>
+                            )}
+                            <DropdownMenuItem disabled={!user.capabilities.update} asChild>
+                                <Link href={edit.url(user.id)} className="flex items-center">
+                                    <FileEdit aria-hidden="true" className="text-muted-foreground mr-2 size-4" />
+                                    Edit details
+                                </Link>
                             </DropdownMenuItem>
-                        )}
-                        <DropdownMenuItem disabled={!user.capabilities.update} asChild>
-                            <Link href={edit.url(user.id)} className="flex items-center">
-                                <FileEdit aria-hidden="true" className="text-muted-foreground mr-2 size-4" />
-                                Edit details
-                            </Link>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                            disabled={!user.capabilities.update || !!user.suspended_at}
-                            onClick={() => onAction("impersonate", user.id, user.name)}
-                        >
-                            <UserCog aria-hidden="true" className="mr-2 size-4 text-amber-600" />
-                            Impersonate user
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                            disabled={!user.capabilities.manage_access}
-                            onClick={() => onAction(user.suspended_at ? "reactivate" : "suspend", user.id, user.name)}
-                        >
-                            {user.suspended_at ? "Reactivate account" : "Suspend account"}
-                        </DropdownMenuItem>
-                        <DropdownMenuItem disabled={!user.capabilities.manage_access} onClick={() => onAction("revoke", user.id, user.name)}>
-                            Revoke sessions and tokens
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        {!user.email_verified_at ? (
-                            <DropdownMenuItem disabled={!user.capabilities.update} onClick={() => onAction("verify", user.id, user.name)}>
-                                <ShieldCheck aria-hidden="true" className="mr-2 size-4 text-emerald-600" />
-                                Mark email verified
+                            <DropdownMenuItem
+                                disabled={!user.capabilities.update || !!user.suspended_at}
+                                onClick={() => onAction("impersonate", user.id, user.name)}
+                            >
+                                <UserCog aria-hidden="true" className="mr-2 size-4 text-amber-600" />
+                                Impersonate user
                             </DropdownMenuItem>
-                        ) : null}
-                        <DropdownMenuItem disabled={!user.capabilities.update} onClick={() => onAction("reset_password", user.id, user.name)}>
-                            <KeyRound aria-hidden="true" className="mr-2 size-4 text-blue-600" />
-                            Send password reset
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                            disabled={!user.capabilities.delete}
-                            className="text-destructive focus:bg-destructive/10 focus:text-destructive"
-                            onClick={() => onAction("delete", user.id, user.name)}
-                        >
-                            <Trash2 aria-hidden="true" className="mr-2 size-4" />
-                            Archive account
-                        </DropdownMenuItem>
-                    </DropdownMenuContent>
-                </DropdownMenu>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                                disabled={!user.capabilities.manage_access}
+                                onClick={() => onAction(user.suspended_at ? "reactivate" : "suspend", user.id, user.name)}
+                            >
+                                {user.suspended_at ? "Reactivate account" : "Suspend account"}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem disabled={!user.capabilities.manage_access} onClick={() => onAction("revoke", user.id, user.name)}>
+                                Revoke sessions and tokens
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            {!user.email_verified_at ? (
+                                <DropdownMenuItem disabled={!user.capabilities.update} onClick={() => onAction("verify", user.id, user.name)}>
+                                    <ShieldCheck aria-hidden="true" className="mr-2 size-4 text-emerald-600" />
+                                    Mark email verified
+                                </DropdownMenuItem>
+                            ) : null}
+                            <DropdownMenuItem disabled={!user.capabilities.update} onClick={() => onAction("reset_password", user.id, user.name)}>
+                                <KeyRound aria-hidden="true" className="mr-2 size-4 text-blue-600" />
+                                Send password reset
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                                disabled={!user.capabilities.delete}
+                                className="text-destructive focus:bg-destructive/10 focus:text-destructive"
+                                onClick={() => onAction("delete", user.id, user.name)}
+                            >
+                                <Trash2 aria-hidden="true" className="mr-2 size-4" />
+                                Archive account
+                            </DropdownMenuItem>
+                        </DropdownMenuContent>
+                    </DropdownMenu>
+                </div>
             );
         },
     },

@@ -277,3 +277,24 @@ it('blocks a suspended account using a valid magic link', function (): void {
     $this->get($url)->assertForbidden();
     $this->assertGuest();
 });
+
+it('upgrades existing directory viewers with detail access but no editing powers', function (): void {
+    $direct = userManagementAdmin(['ViewAny:User']);
+    $roleViewer = User::factory()->create(['role' => UserRole::Admin]);
+    $role = Role::findOrCreate('Legacy user viewer', 'web');
+    $role->givePermissionTo('ViewAny:User');
+    $roleViewer->assignRole($role);
+    $target = User::factory()->create(['role' => UserRole::Student]);
+    $migration = require database_path('migrations/2026_10_20_091245_grant_user_detail_view_to_existing_directory_viewers.php');
+    $migration->up();
+    $migration->up();
+    foreach ([$direct, $roleViewer] as $viewer) {
+        $viewer = $viewer->fresh();
+        $response = $this->actingAs($viewer)->get(portalUrlForAdministrators('/administrators/users'))->assertOk();
+        $account = collect($response->inertiaProps('users.data'))->firstWhere('id', $target->id);
+        expect($account['capabilities']['view'])->toBeTrue()
+            ->and($account['capabilities']['update'])->toBeFalse();
+        $this->get(portalUrlForAdministrators('/administrators/users/'.$target->id))->assertOk();
+        $this->get(portalUrlForAdministrators('/administrators/users/'.$target->id.'/edit'))->assertForbidden();
+    }
+});
