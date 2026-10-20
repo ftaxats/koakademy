@@ -18,8 +18,8 @@ final class ImpersonationRedirectTest extends TestCase
     {
         $admin = User::factory()->create(['role' => UserRole::Admin]);
         $student = User::factory()->create(['role' => UserRole::Student]);
-        Permission::findOrCreate('ViewAny:User', 'web');
-        $admin->givePermissionTo('ViewAny:User');
+        Permission::findOrCreate('Update:User', 'web');
+        $admin->givePermissionTo('Update:User');
 
         $this->actingAs($admin)
             ->post(route('administrators.users.impersonate', $student))
@@ -32,8 +32,8 @@ final class ImpersonationRedirectTest extends TestCase
     {
         $admin = User::factory()->create(['role' => UserRole::Admin]);
         $faculty = User::factory()->create(['role' => UserRole::Professor]);
-        Permission::findOrCreate('ViewAny:User', 'web');
-        $admin->givePermissionTo('ViewAny:User');
+        Permission::findOrCreate('Update:User', 'web');
+        $admin->givePermissionTo('Update:User');
 
         $this->actingAs($admin)
             ->post(route('administrators.users.impersonate', $faculty))
@@ -47,8 +47,8 @@ final class ImpersonationRedirectTest extends TestCase
         // SuperAdmin can impersonate Admin
         $superAdmin = User::factory()->create(['role' => UserRole::SuperAdmin]);
         $admin = User::factory()->create(['role' => UserRole::Admin]);
-        Permission::findOrCreate('ViewAny:User', 'web');
-        $superAdmin->givePermissionTo('ViewAny:User');
+        Permission::findOrCreate('Update:User', 'web');
+        $superAdmin->givePermissionTo('Update:User');
 
         $this->actingAs($superAdmin)
             ->post(route('administrators.users.impersonate', $admin))

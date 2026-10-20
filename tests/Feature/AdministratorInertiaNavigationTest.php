@@ -145,6 +145,8 @@ function administratorInertiaAuditUser(): User
         'view_tuition_fees',
         'manage_tuition_fees',
         'ViewAny:User',
+        'Create:User',
+        'Update:User',
         'ViewAny:Student',
         'ViewAny:Faculty',
         'ViewAny:Department',
