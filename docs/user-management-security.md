@@ -50,3 +50,9 @@ Suspension blocks session-guard login events, mobile token issuance, and existin
 Individual session listing and revocation require `SESSION_DRIVER=database` and use the configured session connection/table. The page displays up to 100 unexpired sessions and 100 API tokens. Session action references are encrypted; raw session IDs and token secrets are not exposed. Individual session removal rotates the account's remember-me token; this invalidates remembered login on other devices but does not delete their active sessions. Already-running requests are not canceled by revocation. Use suspension or revoke-all for account compromise; individual DB session deletion alone cannot prevent a concurrent request from writing its session back.
 
 Suspension reasons appear to authorized account viewers and in account security history. Do not put passwords or other secrets into reasons. Activity-log retention policy applies to historical reasons; reactivation clears the current suspension reason on the account.
+
+## Existing-schema migration recovery
+
+The user activity/access migrations tolerate pre-existing columns and the named last-active index, including a partial prior run. Existing values and column definitions are preserved. Their rollback deliberately retains schema and security state because it cannot distinguish adopted columns from newly created columns. Use forward fixes, not rollback, for recovery.
+
+After deploying these migration guards, retry normal `php artisan migrate`. Do not delete users, drop existing login columns/indexes, run `migrate:fresh`, or manually mark failed migrations as complete. If PostgreSQL still reports `relation already exists`, capture the full relation name and failing migration: that relation may be unrelated to these user columns. These guards were tested with isolated SQLite schemas; PostgreSQL recovery was not exercised against production.

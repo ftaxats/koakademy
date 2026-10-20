@@ -13,10 +13,16 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('users', function (Blueprint $table): void {
-            $table->timestamp('last_login_at')->nullable();
-            $table->timestamp('last_active_at')->nullable()->index();
-        });
+        foreach (['last_login_at', 'last_active_at'] as $column) {
+            if (! Schema::hasColumn('users', $column)) {
+                Schema::table('users', fn (Blueprint $table) => $table->timestamp($column)->nullable());
+            }
+        }
+
+        // PostgreSQL calls indexes relations too. Check independently after partial upgrades.
+        if (! Schema::hasIndex('users', 'users_last_active_at_index')) {
+            Schema::table('users', fn (Blueprint $table) => $table->index('last_active_at'));
+        }
     }
 
     /**
@@ -24,9 +30,7 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::table('users', function (Blueprint $table): void {
-            $table->dropIndex(['last_active_at']);
-            $table->dropColumn(['last_login_at', 'last_active_at']);
-        });
+        // Existing installations may already own these columns and their history.
+        // Do not drop adopted schema or authentication data during rollback. Forward-fix only.
     }
 };

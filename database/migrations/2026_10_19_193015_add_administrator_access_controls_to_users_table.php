@@ -13,11 +13,15 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('users', function (Blueprint $table): void {
-            $table->timestamp('suspended_at')->nullable();
-            $table->string('suspension_reason', 500)->nullable();
-            $table->unsignedInteger('session_version')->default(0);
-        });
+        if (! Schema::hasColumn('users', 'suspended_at')) {
+            Schema::table('users', fn (Blueprint $table) => $table->timestamp('suspended_at')->nullable());
+        }
+        if (! Schema::hasColumn('users', 'suspension_reason')) {
+            Schema::table('users', fn (Blueprint $table) => $table->string('suspension_reason', 500)->nullable());
+        }
+        if (! Schema::hasColumn('users', 'session_version')) {
+            Schema::table('users', fn (Blueprint $table) => $table->unsignedInteger('session_version')->default(0));
+        }
     }
 
     /**
@@ -25,8 +29,6 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::table('users', function (Blueprint $table): void {
-            $table->dropColumn(['suspended_at', 'suspension_reason', 'session_version']);
-        });
+        // Preserve adopted schema and suspension/revocation state. Forward-fix only.
     }
 };
