@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useGradingConfig } from "@/hooks/use-grading-config";
+import { resolveGradeStatusBadge } from "@/lib/grade-status";
 import {
     computeGwa,
     convertTransfereePointToPercentage,
@@ -11,9 +12,9 @@ import {
     gradeScaleLabel,
     gwaToneClass,
     isPassingGrade,
+    isPassingOutcome,
     isTransfereeDecimalGrade,
     parseNumericGrade,
-    resolveItemBand,
     type GradingConfig,
     type GwaItemLike,
     type GwaResult,
@@ -77,7 +78,7 @@ function gradePasses(
     classification?: string | null,
 ): boolean {
     if (outcome) {
-        return outcome === "pass";
+        return isPassingOutcome(outcome);
     }
 
     if (grade === null || grade === undefined || grade === "" || grade === "-") {
@@ -85,71 +86,6 @@ function gradePasses(
     }
 
     return isPassingGrade(grade, config, classification);
-}
-
-interface StatusBadgeInfo {
-    label: string;
-    variant: "default" | "destructive" | "secondary" | "outline";
-    className: string;
-    isPassed: boolean;
-}
-
-function resolveStatusBadge(subject: ChecklistSubject, config: GradingConfig): StatusBadgeInfo {
-    const zeroIsDropped = config.zero_is_dropped ?? false;
-    const numeric = parseNumericGrade(subject.grade);
-
-    if (subject.grade_outcome === "withdrawn" || subject.grade_outcome === "dropped") {
-        return { label: "Dropped", variant: "destructive", className: "", isPassed: false };
-    }
-
-    if (zeroIsDropped && numeric !== null && numeric === 0) {
-        return { label: "Dropped", variant: "destructive", className: "", isPassed: false };
-    }
-
-    if (subject.grade_outcome === "pass") {
-        return { label: "Passed", variant: "default", className: "bg-green-600 hover:bg-green-700", isPassed: true };
-    }
-    if (subject.grade_outcome === "fail") {
-        return { label: "Failed", variant: "destructive", className: "", isPassed: false };
-    }
-    if (subject.grade_outcome === "incomplete") {
-        return { label: "Incomplete", variant: "secondary", className: "", isPassed: false };
-    }
-
-    const band = resolveItemBand(subject.grade, config, subject.classification);
-    if (band) {
-        const isPassed = band.outcome === "pass";
-        const isFailOrDropped = band.outcome === "fail" || band.outcome === "withdrawn";
-        const variant = isPassed ? "default" : isFailOrDropped ? "destructive" : band.outcome === "incomplete" ? "secondary" : "outline";
-        const className = isPassed ? "bg-green-600 hover:bg-green-700" : "";
-        return {
-            label: band.label,
-            variant,
-            className,
-            isPassed,
-        };
-    }
-
-    if (numeric === null) {
-        if (subject.status === "Completed") {
-            return { label: "Passed", variant: "default", className: "bg-green-600 hover:bg-green-700", isPassed: true };
-        }
-        const isProg = subject.status === "In Progress";
-        return {
-            label: subject.status,
-            variant: isProg ? "secondary" : "outline",
-            className: "",
-            isPassed: false,
-        };
-    }
-
-    const isPassed = isPassingGrade(numeric, config, subject.classification);
-    return {
-        label: isPassed ? "Passed" : "Failed",
-        variant: isPassed ? "default" : "destructive",
-        className: isPassed ? "bg-green-600 hover:bg-green-700" : "",
-        isPassed,
-    };
 }
 
 function flattenSubjectsForGwa(subjects: ChecklistSubject[], config: GradingConfig): GwaItemLike[] {
@@ -322,7 +258,7 @@ export function StudentChecklistSection({
                                                     <TableBody>
                                                         {semesterGroup.subjects.map((subject, subjectIndex) => {
                                                             const hasHistory = subject.history && subject.history.length > 1;
-                                                            const badgeInfo = resolveStatusBadge(subject, gradingConfig);
+                                                            const badgeInfo = resolveGradeStatusBadge(subject, gradingConfig);
 
                                                             return (
                                                                 <Fragment key={`${subject.id}-${subjectIndex}`}>
@@ -399,7 +335,7 @@ export function StudentChecklistSection({
                                                                             const isPassed =
                                                                                 !isDropped &&
                                                                                 (history.grade_outcome
-                                                                                    ? history.grade_outcome === "pass"
+                                                                                    ? isPassingOutcome(history.grade_outcome)
                                                                                     : gradePasses(history.grade, gradingConfig, null, history.classification));
 
                                                                             return (

@@ -318,6 +318,53 @@ export function gradeOutcome(
     return band?.outcome ?? null;
 }
 
+/**
+ * Canonical wording for a grade *result*.
+ *
+ * Band labels are policy-defined (the default policy names them "Passing" and
+ * "Failing") and describe a score range, while a result describes what
+ * happened to a subject. Screens render the result wording so the same outcome
+ * always reads the same, whether it came from a stored `grade_outcome` snapshot
+ * or from a live band lookup.
+ */
+export const GRADE_OUTCOME_STATUS_LABELS: Record<string, string> = {
+    pass: "Passed",
+    passed: "Passed",
+    fail: "Failed",
+    failed: "Failed",
+    dropped: "Dropped",
+    withdrawn: "Dropped",
+    incomplete: "Incomplete",
+};
+
+/**
+ * Resolve the display label for a grade outcome.
+ *
+ * Outcomes without a canonical wording (e.g. "non_credit") fall back to the
+ * caller-supplied label, which is usually the policy's own band name.
+ */
+export function gradeOutcomeStatusLabel(outcome: string | null | undefined, fallback = ""): string {
+    if (!outcome) {
+        return fallback;
+    }
+
+    return GRADE_OUTCOME_STATUS_LABELS[outcome] ?? fallback;
+}
+
+/**
+ * Whether a stored grade outcome represents a pass.
+ *
+ * Accepts the "passed" alias so a row recorded under either spelling is
+ * treated identically everywhere.
+ */
+export function isPassingOutcome(outcome: string | null | undefined): boolean {
+    if (!outcome) {
+        return false;
+    }
+
+    return GRADE_OUTCOME_STATUS_LABELS[outcome] === "Passed";
+}
+
 export function isPassingGrade(
     grade: number | string,
     config?: Partial<GradingConfig> | null,

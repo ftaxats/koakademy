@@ -186,6 +186,7 @@ jobs:
         run: |
           npm run test:email-canvas
           npm run test:enrollment-workflow
+          npm run test:grade-status-labels
 
       - name: Exercise stable and edge installer fixtures
         run: |

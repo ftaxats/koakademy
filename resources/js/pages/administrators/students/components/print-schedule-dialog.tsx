@@ -4,7 +4,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { useGradingConfig } from "@/hooks/use-grading-config";
-import { isPassingGrade, parseNumericGrade } from "@/lib/gwa";
+import { isPassingGrade, isPassingOutcome, parseNumericGrade } from "@/lib/gwa";
 import { cn } from "@/lib/utils";
 import { usePage } from "@inertiajs/react";
 import { AlertCircle, BookOpen, CalendarIcon, CheckCircle, FileText, ListIcon, Printer } from "lucide-react";
@@ -29,7 +29,7 @@ export function PrintScheduleDialog({
     const [printOption, setPrintOption] = useState<PrintOption>(initialOption);
 
     const gradePasses = (grade: number | string | null, outcome?: string | null): boolean => {
-        if (outcome) return outcome === "pass";
+        if (outcome) return isPassingOutcome(outcome);
         const numericGrade = parseNumericGrade(grade);
 
         return numericGrade !== null && isPassingGrade(numericGrade, gradingConfig);
