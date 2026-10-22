@@ -18,8 +18,13 @@ fail() {
     exit 1
 }
 
-[[ "$attempts" =~ ^[0-9]+$ ]] && [[ "$attempts" -ge 1 ]] || fail "AUDIT_ATTEMPTS must be a positive integer."
-[[ "$delay_seconds" =~ ^[0-9]+$ ]] || fail "AUDIT_RETRY_DELAY must be a non-negative integer."
+if ! [[ "$attempts" =~ ^[0-9]+$ ]] || [ "$attempts" -lt 1 ]; then
+    fail "AUDIT_ATTEMPTS must be a positive integer."
+fi
+
+if ! [[ "$delay_seconds" =~ ^[0-9]+$ ]]; then
+    fail "AUDIT_RETRY_DELAY must be a non-negative integer."
+fi
 
 stdout_file="$(mktemp)"
 stderr_file="$(mktemp)"
