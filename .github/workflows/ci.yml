@@ -177,7 +177,7 @@ jobs:
         run: npm ci
 
       - name: Audit JavaScript production dependencies
-        run: npm audit --omit=dev --audit-level=high
+        run: bash scripts/audit-production-deps.sh
 
       - name: Check PHP formatting
         run: vendor/bin/pint --test
@@ -214,12 +214,14 @@ jobs:
             sh -n "${script}"
           done
           for script in scripts/install.sh scripts/koakademy scripts/check-release-assets.sh \
-            scripts/generate-version-metadata.sh tests/installer-release.sh; do
+            scripts/generate-version-metadata.sh scripts/audit-production-deps.sh \
+            tests/installer-release.sh; do
             bash -n "${script}"
           done
           shellcheck scripts/install.sh scripts/koakademy scripts/koakademy-app-entrypoint.sh \
             scripts/check-release-assets.sh scripts/generate-version-metadata.sh \
-            tests/installer-release.sh tests/Fixtures/installer/docker tests/Fixtures/installer/curl
+            scripts/audit-production-deps.sh tests/installer-release.sh \
+            tests/Fixtures/installer/docker tests/Fixtures/installer/curl
 
       - name: Validate one-line Swarm stack
         run: |

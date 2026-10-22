@@ -41,10 +41,11 @@ The `required` job evaluates `.github/ci-required.jq`. It accepts skipped valida
 composer install
 npm ci
 composer audit --locked --abandoned=report
-npm audit --omit=dev --audit-level=high
+bash scripts/audit-production-deps.sh
 vendor/bin/pint --test
 npm run test:email-canvas
 npm run test:enrollment-workflow
+npm run test:grade-status-labels
 bash tests/ci-required.sh
 bash tests/installer-release.sh stable
 bash tests/installer-release.sh edge
@@ -60,12 +61,13 @@ for script in docker/start-container docker/healthcheck docker/pulse-process \
   sh -n "$script"
 done
 for script in scripts/install.sh scripts/koakademy scripts/check-release-assets.sh \
-  scripts/generate-version-metadata.sh tests/installer-release.sh tests/ci-required.sh; do
+  scripts/generate-version-metadata.sh scripts/audit-production-deps.sh \
+  tests/installer-release.sh tests/ci-required.sh; do
   bash -n "$script"
 done
 shellcheck scripts/install.sh scripts/koakademy scripts/koakademy-app-entrypoint.sh \
   scripts/check-release-assets.sh scripts/generate-version-metadata.sh \
-  tests/installer-release.sh tests/ci-required.sh \
+  scripts/audit-production-deps.sh tests/installer-release.sh tests/ci-required.sh \
   tests/Fixtures/installer/docker tests/Fixtures/installer/curl tests/Fixtures/installer/ss
 docker compose --env-file tests/Fixtures/installer/swarm-stack.env \
   -f scripts/swarm-stack.yml config --quiet
@@ -95,3 +97,4 @@ php artisan test --compact --filter="shows the setup screen"
 - **Production approval:** stable finalization uses the `production` environment; edge finalization uses `container-publishing`. Configure required reviewers and protected-branch restrictions on `production` in GitHub. Delivery verifies those rules before stable publication and fails closed if they are absent or unreadable.
 - **Repository setup:** require `CI / required` for `master`, require PR reviews, and review administrator bypass policy in GitHub. These settings are not controlled by workflow YAML.
 - **Existing quality debt:** repository-wide ESLint/Prettier, PHPStan, and strict Composer validation are not introduced as new blocking checks here. Production npm audit is blocking at high/critical severity; resolve unrelated lint/static-analysis debt before adding those gates.
+- **Audit resilience:** `scripts/audit-production-deps.sh` retries the production dependency audit when npm cannot reach the advisory endpoint, and fails closed once the attempts are exhausted. A report npm actually produced always fails the run immediately, so the gate still blocks real high or critical findings.
